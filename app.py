@@ -170,6 +170,129 @@ def get_bot_roles(guild_id):
 
 
 # =========================================================
+# معالجة أنواع الرومات
+# =========================================================
+
+def normalize_channel_type(channel):
+    """
+    Discord API يرجع type كرقم:
+    0  = Text
+    2  = Voice
+    4  = Category
+    5  = Announcement
+    13 = Stage
+    15 = Forum
+    16 = Media
+
+    وبعض البيانات القديمة عندنا في Mongo
+    ممكن تكون نصية مثل:
+    text / voice / news / forum
+    """
+
+    channel_type = channel.get("type")
+
+    if isinstance(channel_type, int):
+        mapping = {
+            0: "text",
+            2: "voice",
+            4: "category",
+            5: "news",
+            13: "stage_voice",
+            15: "forum",
+            16: "media",
+        }
+
+        return mapping.get(
+            channel_type,
+            str(channel_type)
+        )
+
+    channel_type = str(
+        channel_type
+    ).lower().strip()
+
+    mapping = {
+        "text": "text",
+        "voice": "voice",
+        "category": "category",
+        "news": "news",
+        "announcement": "news",
+        "stage_voice": "stage_voice",
+        "stage": "stage_voice",
+        "forum": "forum",
+        "media": "media",
+    }
+
+    return mapping.get(
+        channel_type,
+        channel_type
+    )
+
+
+def prepare_channels_for_picker(channels):
+    """
+    تجهيز الرومات التي تظهر في اختيار رومات الأوامر.
+
+    الأوامر النصية يمكن تشغيلها في:
+    - Text
+    - Announcement
+    - Forum
+
+    ونستبعد:
+    - Category
+    - Voice
+    - Stage
+    """
+
+    result = []
+
+    allowed_types = {
+        "text",
+        "news",
+        "forum",
+    }
+
+    for channel in channels:
+
+        if not isinstance(channel, dict):
+            continue
+
+        channel_type = normalize_channel_type(
+            channel
+        )
+
+        if channel_type not in allowed_types:
+            continue
+
+        result.append({
+            "id": str(
+                channel.get(
+                    "id",
+                    ""
+                )
+            ),
+            "name": channel.get(
+                "name",
+                "روم"
+            ),
+            "type": channel_type,
+            "position": channel.get(
+                "position",
+                0
+            ),
+        })
+
+    result.sort(
+        key=lambda x: x.get(
+            "position",
+            0
+        )
+    )
+
+    return result
+
+
+# =========================================================
 # صلاحية المستخدم على السيرفر
 # =========================================================
 
@@ -1428,7 +1551,6 @@ def enable_economy():
             "error": "ID روم الاقتصاد غير صحيح."
         }, 400
 
-    # نتأكد أن الروم موجود داخل السيرفر
     channels = get_bot_channels(
         guild_id
     )
@@ -1445,7 +1567,6 @@ def enable_economy():
                 "type"
             )
 
-            # Text / Announcement / Forum
             if channel_type in (0, 5, 15):
 
                 channel_exists = True
@@ -1458,18 +1579,6 @@ def enable_economy():
             "success": False,
             "error": "روم الاقتصاد غير موجود أو ليس رومًا كتابيًا."
         }, 400
-
-    # =====================================================
-    # مهم جدًا:
-    # نستخدم $set فقط.
-    #
-    # لا يتم حذف:
-    # - economy_balances
-    # - economy_rewards
-    # - cooldowns
-    #
-    # ولا يتم تصفير أي لاعب.
-    # =====================================================
 
     economy_settings_collection.update_one(
         {
@@ -1520,8 +1629,6 @@ def disable_economy():
             "error": "غير مصرح لك."
         }, 403
 
-    # فقط نعطل النظام.
-    # لا نحذف أي بيانات.
     economy_settings_collection.update_one(
         {
             "guild_id": str(guild_id)
@@ -1690,6 +1797,12 @@ nav {
     color:#9b98aa;
     font-size:13px;
     line-height:1.7;
+}
+
+.empty-picker {
+    color:#aaa7b8;
+    text-align:center;
+    padding:15px;
 }
 
 .toggle-box {
@@ -1874,9 +1987,9 @@ id="channelButton">
 <div class="menu"
 id="channelsMenu">
 
-{% for channel in channels %}
+{% if channels %}
 
-{% if channel.type in [0,5,15,2,13] %}
+{% for channel in channels %}
 
 <label class="item">
 
@@ -1890,9 +2003,15 @@ value="{{ channel.id }}"
 
 </label>
 
-{% endif %}
-
 {% endfor %}
+
+{% else %}
+
+<div class="empty-picker">
+❌ لم يتم العثور على رومات كتابية.
+</div>
+
+{% endif %}
 
 </div>
 
@@ -1976,6 +2095,8 @@ function openSettings(command) {
         "enabledCheck"
     ).checked = false;
 
+    updateButtonText();
+
     fetch(
         "/api/command-settings?guild={{ guild_id }}&command="
         + encodeURIComponent(command)
@@ -1986,6 +2107,8 @@ function openSettings(command) {
         if (!data.success) return;
 
         (data.channel_ids || []).forEach(id => {
+
+            id = String(id);
 
             const box =
                 document.querySelector(
@@ -1999,6 +2122,8 @@ function openSettings(command) {
         });
 
         (data.role_ids || []).forEach(id => {
+
+            id = String(id);
 
             const box =
                 document.querySelector(
@@ -2017,6 +2142,13 @@ function openSettings(command) {
             data.enabled === true;
 
         updateButtonText();
+
+    })
+    .catch(() => {
+
+        console.log(
+            "تعذر جلب إعدادات الأمر"
+        );
 
     });
 
@@ -2109,7 +2241,7 @@ function saveSettings() {
             ".channel-check:checked"
         )
     ].map(
-        x => x.value
+        x => String(x.value)
     );
 
     const roles = [
@@ -2117,7 +2249,7 @@ function saveSettings() {
             ".role-check:checked"
         )
     ].map(
-        x => x.value
+        x => String(x.value)
     );
 
     const enabled =
@@ -2228,14 +2360,26 @@ def commands_page():
     if not guild:
         return "السيرفر غير موجود.", 404
 
-    channels = guild.get(
-        "channels",
-        []
+    # =====================================================
+    # مهم:
+    # لا نستخدم guild["channels"] هنا.
+    #
+    # نجلب الرومات مباشرة من Discord API
+    # لأن Mongo قد يحتوي type كنص،
+    # بينما Discord API يرجعه كرقم.
+    # =====================================================
+
+    discord_channels = get_bot_channels(
+        guild_id
     )
 
-    roles = guild.get(
-        "roles",
-        []
+    channels = prepare_channels_for_picker(
+        discord_channels
+    )
+
+    # الرتب نتركها كما هي لأنها تعمل عندك
+    roles = get_bot_roles(
+        guild_id
     )
 
     return render_template_string(
