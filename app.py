@@ -61,6 +61,9 @@ commands_collection = db["website_commands"]
 guilds_collection = db["website_guilds"]
 settings_collection = db["website_command_settings"]
 
+# إعدادات الاقتصاد لكل سيرفر
+economy_settings_collection = db["economy_settings"]
+
 
 # =========================================================
 # Discord API
@@ -179,7 +182,6 @@ def user_can_control(guild_id):
 
     user_id = str(user["id"])
 
-    # بيانات السيرفر من البوت
     guild_data = guilds_collection.find_one({
         "guild_id": str(guild_id)
     })
@@ -808,15 +810,94 @@ h1 {
     text-decoration:none;
     font-weight:bold;
     margin-top:10px;
+    border:0;
+    cursor:pointer;
 }
 
 .secondary {
     background:#ffffff0d;
 }
 
+input {
+    width:100%;
+    padding:14px;
+    margin-top:10px;
+    box-sizing:border-box;
+    border-radius:12px;
+    border:1px solid #ffffff14;
+    background:#ffffff0b;
+    color:white;
+    outline:none;
+}
+
+input:focus {
+    border-color:#8b5cff;
+}
+
+.status {
+    display:inline-block;
+    padding:7px 12px;
+    border-radius:20px;
+    margin-top:10px;
+    font-size:13px;
+}
+
+.status.on {
+    background:#22c55e22;
+    color:#6ee7a0;
+}
+
+.status.off {
+    background:#ef444422;
+    color:#ff8585;
+}
+
+.economy-actions {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+}
+
+.danger {
+    background:linear-gradient(135deg,#b42323,#e05252);
+}
+
+.info {
+    color:#9d9aaa;
+    line-height:1.7;
+    font-size:14px;
+}
+
+.message {
+    margin-top:12px;
+    padding:12px;
+    border-radius:12px;
+    display:none;
+}
+
+.success {
+    background:#22c55e18;
+    color:#7af0a5;
+}
+
+.error {
+    background:#ef444418;
+    color:#ff8a8a;
+}
+
 @media(max-width:650px) {
+
     .grid {
         grid-template-columns:1fr;
+    }
+
+    .economy-actions {
+        flex-direction:column;
+    }
+
+    .economy-actions .btn {
+        width:100%;
+        text-align:center;
     }
 }
 
@@ -852,6 +933,7 @@ h1 {
 
 </div>
 
+
 <div class="grid">
 
 <div class="card">
@@ -876,13 +958,97 @@ h1 {
 
 </div>
 
+
+<!-- =====================================================
+     نظام الاقتصاد
+===================================================== -->
+
+<div class="card">
+
+<h2>💰 نظام الاقتصاد</h2>
+
+<p class="info">
+من هنا تقوم بتفعيل نظام الاقتصاد لهذا السيرفر
+وتحديد روم الاقتصاد.
+<br>
+تغيير الإعدادات هنا لا يحذف أرصدة اللاعبين
+ولا يصفر أي بيانات موجودة.
+</p>
+
+
+{% if economy_enabled %}
+
+<div class="status on">
+    🟢 نظام الاقتصاد مفعّل
+</div>
+
+<p class="info">
+روم الاقتصاد الحالي:
+<br>
+<b>#{{ economy_room_name }}</b>
+<br>
+ID: {{ economy_room_id }}
+</p>
+
+<div class="economy-actions">
+
+<button
+class="btn"
+onclick="changeEconomyRoom()">
+⚙️ تغيير روم الاقتصاد
+</button>
+
+<button
+class="btn danger"
+onclick="disableEconomy()">
+🔴 تعطيل نظام الاقتصاد
+</button>
+
+</div>
+
+{% else %}
+
+<div class="status off">
+    🔴 نظام الاقتصاد غير مفعّل
+</div>
+
+<p class="info">
+أدخل ID الروم الذي تريد استخدامه للاقتصاد.
+</p>
+
+<input
+id="economyRoomId"
+placeholder="مثال: 1544334212734124174"
+inputmode="numeric"
+>
+
+<button
+class="btn"
+onclick="enableEconomy()">
+💰 تفعيل نظام الاقتصاد
+</button>
+
+{% endif %}
+
+<div
+id="economyMessage"
+class="message">
+</div>
+
+</div>
+
+
+<!-- =====================================================
+     إدارة الأوامر
+===================================================== -->
+
 <div class="card">
 
 <h2>🧩 إدارة الأوامر</h2>
 
 <p>
-تحكم في الرومات والرتب المسموح لها
-باستخدام كل أمر.
+تحكم في الرومات والرتب والتفعيل
+الخاص بكل أمر.
 </p>
 
 <a class="btn"
@@ -891,6 +1057,11 @@ href="/commands?guild={{ guild_id }}">
 </a>
 
 </div>
+
+
+<!-- =====================================================
+     إنشاء روم
+===================================================== -->
 
 <div class="card">
 
@@ -908,6 +1079,227 @@ href="/create-channel?guild={{ guild_id }}">
 </div>
 
 </div>
+
+
+<script>
+
+function showEconomyMessage(
+    message,
+    success
+) {
+
+    const box =
+        document.getElementById(
+            "economyMessage"
+        );
+
+    box.innerText = message;
+
+    box.className =
+        "message " +
+        (success
+            ? "success"
+            : "error");
+
+    box.style.display = "block";
+}
+
+
+function enableEconomy() {
+
+    const input =
+        document.getElementById(
+            "economyRoomId"
+        );
+
+    const roomId =
+        input.value.trim();
+
+    if (!/^\\d+$/.test(roomId)) {
+
+        showEconomyMessage(
+            "❌ أدخل ID روم صحيح.",
+            false
+        );
+
+        return;
+    }
+
+    fetch(
+        "/api/economy/enable",
+        {
+            method:"POST",
+
+            headers:{
+                "Content-Type":
+                "application/json"
+            },
+
+            body:JSON.stringify({
+                guild_id:
+                "{{ guild_id }}",
+
+                economy_room_id:
+                roomId
+            })
+        }
+    )
+    .then(r => r.json())
+    .then(data => {
+
+        if (data.success) {
+
+            showEconomyMessage(
+                "✅ تم تفعيل نظام الاقتصاد.",
+                true
+            );
+
+            setTimeout(
+                () => location.reload(),
+                700
+            );
+
+        } else {
+
+            showEconomyMessage(
+                "❌ " +
+                (data.error ||
+                "حدث خطأ."),
+                false
+            );
+
+        }
+
+    })
+    .catch(() => {
+
+        showEconomyMessage(
+            "❌ تعذر الاتصال بالموقع.",
+            false
+        );
+
+    });
+
+}
+
+
+function changeEconomyRoom() {
+
+    const roomId =
+        prompt(
+            "أدخل ID روم الاقتصاد الجديد:"
+        );
+
+    if (!roomId) {
+        return;
+    }
+
+    if (!/^\\d+$/.test(roomId.trim())) {
+
+        alert(
+            "❌ ID الروم غير صحيح."
+        );
+
+        return;
+    }
+
+    fetch(
+        "/api/economy/enable",
+        {
+            method:"POST",
+
+            headers:{
+                "Content-Type":
+                "application/json"
+            },
+
+            body:JSON.stringify({
+                guild_id:
+                "{{ guild_id }}",
+
+                economy_room_id:
+                roomId.trim()
+            })
+        }
+    )
+    .then(r => r.json())
+    .then(data => {
+
+        if (data.success) {
+
+            alert(
+                "✅ تم تغيير روم الاقتصاد."
+            );
+
+            location.reload();
+
+        } else {
+
+            alert(
+                "❌ " +
+                (data.error ||
+                "حدث خطأ.")
+            );
+
+        }
+
+    });
+
+}
+
+
+function disableEconomy() {
+
+    if (
+        !confirm(
+            "هل أنت متأكد من تعطيل نظام الاقتصاد؟\\n\\nلن يتم حذف أرصدة اللاعبين أو أي بيانات."
+        )
+    ) {
+        return;
+    }
+
+    fetch(
+        "/api/economy/disable",
+        {
+            method:"POST",
+
+            headers:{
+                "Content-Type":
+                "application/json"
+            },
+
+            body:JSON.stringify({
+                guild_id:
+                "{{ guild_id }}"
+            })
+        }
+    )
+    .then(r => r.json())
+    .then(data => {
+
+        if (data.success) {
+
+            alert(
+                "🔴 تم تعطيل نظام الاقتصاد."
+            );
+
+            location.reload();
+
+        } else {
+
+            alert(
+                "❌ " +
+                (data.error ||
+                "حدث خطأ.")
+            );
+
+        }
+
+    });
+
+}
+
+</script>
 
 </body>
 </html>
@@ -929,6 +1321,50 @@ def server_page(guild_id):
     if not guild:
         return "السيرفر غير موجود.", 404
 
+    economy = economy_settings_collection.find_one({
+        "guild_id": str(guild_id)
+    }) or {}
+
+    economy_enabled = bool(
+        economy.get(
+            "currency_enabled",
+            False
+        )
+    )
+
+    economy_room_id = str(
+        economy.get(
+            "economy_room_id",
+            ""
+        )
+    )
+
+    economy_room_name = "غير محدد"
+
+    if economy_room_id:
+
+        channels = guild.get(
+            "channels",
+            []
+        )
+
+        for channel in channels:
+
+            if str(
+                channel.get("id")
+            ) == economy_room_id:
+
+                economy_room_name = channel.get(
+                    "name",
+                    "الروم"
+                )
+
+                break
+
+        if economy_room_name == "غير محدد":
+
+            economy_room_name = economy_room_id
+
     return render_template_string(
         SERVER_HTML,
         guild_id=guild_id,
@@ -943,7 +1379,165 @@ def server_page(guild_id):
         role_count=len(
             guild.get("roles", [])
         ),
+        economy_enabled=economy_enabled,
+        economy_room_id=economy_room_id,
+        economy_room_name=economy_room_name
     )
+
+
+# =========================================================
+# تفعيل نظام الاقتصاد
+# =========================================================
+
+@app.route(
+    "/api/economy/enable",
+    methods=["POST"]
+)
+def enable_economy():
+
+    data = request.get_json(
+        silent=True
+    ) or {}
+
+    guild_id = data.get(
+        "guild_id"
+    )
+
+    economy_room_id = str(
+        data.get(
+            "economy_room_id",
+            ""
+        )
+    ).strip()
+
+    if not guild_id:
+        return {
+            "success": False,
+            "error": "guild_id مفقود."
+        }, 400
+
+    if not user_can_control(guild_id):
+        return {
+            "success": False,
+            "error": "غير مصرح لك."
+        }, 403
+
+    if not economy_room_id.isdigit():
+        return {
+            "success": False,
+            "error": "ID روم الاقتصاد غير صحيح."
+        }, 400
+
+    # نتأكد أن الروم موجود داخل السيرفر
+    channels = get_bot_channels(
+        guild_id
+    )
+
+    channel_exists = False
+
+    for channel in channels:
+
+        if str(
+            channel.get("id")
+        ) == economy_room_id:
+
+            channel_type = channel.get(
+                "type"
+            )
+
+            # Text / Announcement / Forum
+            if channel_type in (0, 5, 15):
+
+                channel_exists = True
+
+            break
+
+    if not channel_exists:
+
+        return {
+            "success": False,
+            "error": "روم الاقتصاد غير موجود أو ليس رومًا كتابيًا."
+        }, 400
+
+    # =====================================================
+    # مهم جدًا:
+    # نستخدم $set فقط.
+    #
+    # لا يتم حذف:
+    # - economy_balances
+    # - economy_rewards
+    # - cooldowns
+    #
+    # ولا يتم تصفير أي لاعب.
+    # =====================================================
+
+    economy_settings_collection.update_one(
+        {
+            "guild_id": str(guild_id)
+        },
+        {
+            "$set": {
+                "guild_id": str(guild_id),
+                "currency_enabled": True,
+                "economy_room_id": economy_room_id
+            }
+        },
+        upsert=True
+    )
+
+    return {
+        "success": True
+    }
+
+
+# =========================================================
+# تعطيل نظام الاقتصاد
+# =========================================================
+
+@app.route(
+    "/api/economy/disable",
+    methods=["POST"]
+)
+def disable_economy():
+
+    data = request.get_json(
+        silent=True
+    ) or {}
+
+    guild_id = data.get(
+        "guild_id"
+    )
+
+    if not guild_id:
+        return {
+            "success": False,
+            "error": "guild_id مفقود."
+        }, 400
+
+    if not user_can_control(guild_id):
+        return {
+            "success": False,
+            "error": "غير مصرح لك."
+        }, 403
+
+    # فقط نعطل النظام.
+    # لا نحذف أي بيانات.
+    economy_settings_collection.update_one(
+        {
+            "guild_id": str(guild_id)
+        },
+        {
+            "$set": {
+                "guild_id": str(guild_id),
+                "currency_enabled": False
+            }
+        },
+        upsert=True
+    )
+
+    return {
+        "success": True
+    }
 
 
 # =========================================================
@@ -1098,6 +1692,60 @@ nav {
     line-height:1.7;
 }
 
+.toggle-box {
+    background:#ffffff08;
+    border:1px solid #ffffff12;
+    border-radius:14px;
+    padding:14px;
+    margin-bottom:15px;
+}
+
+.toggle-row {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:15px;
+}
+
+.switch {
+    position:relative;
+    width:52px;
+    height:28px;
+}
+
+.switch input {
+    display:none;
+}
+
+.slider {
+    position:absolute;
+    inset:0;
+    cursor:pointer;
+    background:#383847;
+    border-radius:30px;
+    transition:.2s;
+}
+
+.slider:before {
+    content:"";
+    position:absolute;
+    width:22px;
+    height:22px;
+    left:3px;
+    top:3px;
+    background:white;
+    border-radius:50%;
+    transition:.2s;
+}
+
+.switch input:checked + .slider {
+    background:#7136ff;
+}
+
+.switch input:checked + .slider:before {
+    transform:translateX(24px);
+}
+
 @media(max-width:600px) {
 
 .command {
@@ -1173,9 +1821,43 @@ onclick="closeModal()">×</span>
 إعداد الأمر
 </h2>
 
+
+<!-- تفعيل الأمر -->
+
+<div class="toggle-box">
+
+<div class="toggle-row">
+
+<div>
+
+<b>حالة الأمر</b>
+
+<div class="info">
+يمكنك تعطيل الأمر بالكامل من هنا.
+</div>
+
+</div>
+
+<label class="switch">
+
+<input
+type="checkbox"
+id="enabledCheck"
+>
+
+<span class="slider"></span>
+
+</label>
+
+</div>
+
+</div>
+
+
 <p class="info">
 إذا لم تختر أي روم أو رتبة،
-سيبقى الأمر متاحًا بشكل عام.
+فإن صلاحيات الروم والرتبة لن تكون مقيدة
+من إعدادات الموقع.
 </p>
 
 
@@ -1194,7 +1876,7 @@ id="channelsMenu">
 
 {% for channel in channels %}
 
-{% if channel.type in ["text","news","forum","voice","stage_voice"] %}
+{% if channel.type in [0,5,15,2,13] %}
 
 <label class="item">
 
@@ -1280,11 +1962,19 @@ function openSettings(command) {
 
     document.querySelectorAll(
         ".channel-check"
-    ).forEach(x => x.checked = false);
+    ).forEach(
+        x => x.checked = false
+    );
 
     document.querySelectorAll(
         ".role-check"
-    ).forEach(x => x.checked = false);
+    ).forEach(
+        x => x.checked = false
+    );
+
+    document.getElementById(
+        "enabledCheck"
+    ).checked = false;
 
     fetch(
         "/api/command-settings?guild={{ guild_id }}&command="
@@ -1302,7 +1992,9 @@ function openSettings(command) {
                     '.channel-check[value="' + id + '"]'
                 );
 
-            if (box) box.checked = true;
+            if (box) {
+                box.checked = true;
+            }
 
         });
 
@@ -1313,9 +2005,16 @@ function openSettings(command) {
                     '.role-check[value="' + id + '"]'
                 );
 
-            if (box) box.checked = true;
+            if (box) {
+                box.checked = true;
+            }
 
         });
+
+        document.getElementById(
+            "enabledCheck"
+        ).checked =
+            data.enabled === true;
 
         updateButtonText();
 
@@ -1394,7 +2093,9 @@ document.addEventListener(
                 "role-check"
             )
         ) {
+
             updateButtonText();
+
         }
 
     }
@@ -1407,13 +2108,22 @@ function saveSettings() {
         ...document.querySelectorAll(
             ".channel-check:checked"
         )
-    ].map(x => x.value);
+    ].map(
+        x => x.value
+    );
 
     const roles = [
         ...document.querySelectorAll(
             ".role-check:checked"
         )
-    ].map(x => x.value);
+    ].map(
+        x => x.value
+    );
+
+    const enabled =
+        document.getElementById(
+            "enabledCheck"
+        ).checked;
 
 
     fetch(
@@ -1440,7 +2150,9 @@ function saveSettings() {
                 role_ids:
                 roles,
 
-                enabled:true
+                enabled:
+                enabled
+
             })
         }
     )
@@ -1459,10 +2171,18 @@ function saveSettings() {
 
             alert(
                 "❌ " +
-                (data.error || "حدث خطأ")
+                (data.error ||
+                "حدث خطأ")
             );
 
         }
+
+    })
+    .catch(() => {
+
+        alert(
+            "❌ تعذر الاتصال بالموقع."
+        );
 
     });
 
@@ -1478,7 +2198,9 @@ function saveSettings() {
 @app.route("/commands")
 def commands_page():
 
-    guild_id = request.args.get("guild")
+    guild_id = request.args.get(
+        "guild"
+    )
 
     if not guild_id:
         return redirect(
@@ -1651,7 +2373,7 @@ def save_command():
                 "enabled": bool(
                     data.get(
                         "enabled",
-                        True
+                        False
                     )
                 )
             }
