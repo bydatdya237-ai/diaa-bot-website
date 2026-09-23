@@ -2,9 +2,11 @@ import os
 import requests
 
 from flask import Flask, redirect, request, session
+from pymongo import MongoClient
 
 
 app = Flask(__name__)
+
 
 # =========================================================
 # إعدادات Discord
@@ -17,8 +19,31 @@ REDIRECT_URI = "https://diaa-bot-website-production.up.railway.app/callback"
 
 DISCORD_API = "https://discord.com/api/v10"
 
-# مفتاح للجلسة
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-secret-key")
+# مفتاح الجلسة
+app.secret_key = os.getenv(
+    "FLASK_SECRET_KEY",
+    "change-this-secret-key"
+)
+
+
+# =========================================================
+# اتصال MongoDB
+# =========================================================
+
+MONGO_URI = os.getenv("MONGO_URI")
+
+if not MONGO_URI:
+    raise RuntimeError(
+        "❌ MONGO_URI غير موجود في Environment Variables"
+    )
+
+mongo_client = MongoClient(MONGO_URI)
+
+db = mongo_client["discord_bot_db"]
+
+commands_collection = db["website_commands"]
+
+website_settings = db["website_settings"]
 
 
 # =========================================================
@@ -29,22 +54,30 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-secret-key")
 def home():
 
     if "user" in session:
+
         user = session["user"]
 
-        username = user.get("global_name") or user.get("username")
+        username = (
+            user.get("global_name")
+            or user.get("username")
+            or "مستخدم"
+        )
 
         return f"""
         <!DOCTYPE html>
         <html lang="ar" dir="rtl">
 
         <head>
+
             <meta charset="UTF-8">
+
             <meta name="viewport"
                   content="width=device-width, initial-scale=1.0">
 
             <title>ضياء BOT</title>
 
             <style>
+
                 * {{
                     box-sizing: border-box;
                 }}
@@ -68,10 +101,11 @@ def home():
 
                 .user {{
                     margin: 25px auto;
-                    padding: 20px;
-                    max-width: 500px;
+                    padding: 25px;
+                    max-width: 600px;
                     background: #171020;
                     border-radius: 15px;
+                    border: 1px solid #2a1b3d;
                 }}
 
                 .button {{
@@ -82,12 +116,20 @@ def home():
                     text-decoration: none;
                     color: white;
                     background: #8b3dff;
+                    transition: 0.2s;
+                }}
+
+                .button:hover {{
+                    background: #a45cff;
+                    transform: translateY(-2px);
                 }}
 
                 .logout {{
                     background: #3a263f;
                 }}
+
             </style>
+
         </head>
 
         <body>
@@ -105,7 +147,11 @@ def home():
                     </p>
 
                     <a class="button" href="/dashboard">
-                        لوحة التحكم
+                        ⚙️ لوحة التحكم
+                    </a>
+
+                    <a class="button" href="/commands">
+                        📋 أوامر البوت
                     </a>
 
                     <a class="button logout" href="/logout">
@@ -117,6 +163,7 @@ def home():
             </div>
 
         </body>
+
         </html>
         """
 
@@ -261,7 +308,6 @@ def callback():
     if not access_token:
         return "لم يتم الحصول على Access Token.", 400
 
-    # الحصول على معلومات المستخدم
     user_response = requests.get(
         f"{DISCORD_API}/users/@me",
         headers={
@@ -305,6 +351,10 @@ def dashboard():
 
         <style>
 
+            * {
+                box-sizing: border-box;
+            }
+
             body {
                 margin: 0;
                 background: #0d0915;
@@ -319,14 +369,26 @@ def dashboard():
 
             h1 {
                 color: #b66cff;
+                font-size: 40px;
             }
 
             .box {
-                max-width: 600px;
+                max-width: 700px;
                 margin: 30px auto;
-                padding: 30px;
+                padding: 35px;
                 background: #171020;
                 border-radius: 15px;
+                border: 1px solid #2a1b3d;
+            }
+
+            .button {
+                display: inline-block;
+                padding: 14px 30px;
+                margin: 10px;
+                border-radius: 10px;
+                text-decoration: none;
+                color: white;
+                background: #8b3dff;
             }
 
         </style>
@@ -347,13 +409,392 @@ def dashboard():
                     تم تسجيل دخولك بنجاح.
                 </p>
 
-                <p>
-                    لوحة السيرفرات والصلاحيات سيتم إضافتها هنا.
-                </p>
+                <a class="button" href="/commands">
+                    📋 عرض جميع الأوامر
+                </a>
+
+                <a class="button" href="/">
+                    🏠 الرئيسية
+                </a>
 
             </div>
 
         </div>
+
+    </body>
+
+    </html>
+    """
+
+
+# =========================================================
+# صفحة جميع الأوامر
+# =========================================================
+
+@app.route("/commands")
+def commands_page():
+
+    if "user" not in session:
+        return redirect("/login")
+
+    try:
+
+        commands_data = list(
+            commands_collection.find(
+                {},
+                {
+                    "_id": 0,
+                    "name": 1,
+                    "description": 1,
+                    "aliases": 1
+                }
+            ).sort("name", 1)
+        )
+
+        settings = website_settings.find_one(
+            {"_id": "commands"}
+        )
+
+    except Exception as error:
+
+        print(
+            f"❌ خطأ أثناء قراءة أوامر MongoDB: "
+            f"{type(error).__name__}: {error}"
+        )
+
+        return """
+        <h2 style="color:white;text-align:center;">
+            حدث خطأ أثناء تحميل أوامر البوت.
+        </h2>
+        """, 500
+
+    count = len(commands_data)
+
+    updated_at = "غير معروف"
+
+    if settings and settings.get("updated_at"):
+
+        updated_at = str(
+            settings["updated_at"]
+        )
+
+    command_cards = ""
+
+    for command in commands_data:
+
+        name = command.get(
+            "name",
+            "بدون اسم"
+        )
+
+        description = command.get(
+            "description",
+            "لا يوجد وصف لهذا الأمر."
+        )
+
+        aliases = command.get(
+            "aliases",
+            []
+        )
+
+        aliases_text = ""
+
+        if aliases:
+
+            aliases_text = (
+                "<div class='aliases'>"
+                "الاختصارات: "
+                + " ، ".join(
+                    f"<code>{alias}</code>"
+                    for alias in aliases
+                )
+                + "</div>"
+            )
+
+        command_cards += f"""
+        <div class="command-card">
+
+            <div class="command-name">
+                <code>-{name}</code>
+            </div>
+
+            <div class="command-description">
+                {description}
+            </div>
+
+            {aliases_text}
+
+        </div>
+        """
+
+    if not command_cards:
+
+        command_cards = """
+        <div class="empty">
+            لم يتم العثور على أي أوامر.
+        </div>
+        """
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+
+    <head>
+
+        <meta charset="UTF-8">
+
+        <meta name="viewport"
+              content="width=device-width, initial-scale=1.0">
+
+        <title>أوامر ضياء BOT</title>
+
+        <style>
+
+            * {{
+                box-sizing: border-box;
+            }}
+
+            body {{
+                margin: 0;
+                background:
+                    radial-gradient(
+                        circle at top,
+                        #211034,
+                        #0d0915 55%
+                    );
+                color: white;
+                font-family: Arial, sans-serif;
+            }}
+
+            .container {{
+                width: min(1100px, 94%);
+                margin: auto;
+                padding: 50px 0;
+            }}
+
+            .header {{
+                text-align: center;
+                margin-bottom: 35px;
+            }}
+
+            .header h1 {{
+                margin: 0;
+                color: #b66cff;
+                font-size: 42px;
+            }}
+
+            .header p {{
+                color: #aaa;
+                margin-top: 12px;
+            }}
+
+            .stats {{
+                display: flex;
+                justify-content: center;
+                margin-bottom: 30px;
+            }}
+
+            .stat {{
+                background: #171020;
+                border: 1px solid #2a1b3d;
+                border-radius: 15px;
+                padding: 18px 35px;
+                text-align: center;
+            }}
+
+            .stat-number {{
+                display: block;
+                color: #b66cff;
+                font-size: 30px;
+                font-weight: bold;
+            }}
+
+            .stat-label {{
+                color: #aaa;
+                font-size: 14px;
+            }}
+
+            .search {{
+                width: 100%;
+                padding: 16px 20px;
+                margin-bottom: 25px;
+                border: 1px solid #35214c;
+                border-radius: 12px;
+                background: #171020;
+                color: white;
+                outline: none;
+                font-size: 16px;
+            }}
+
+            .search:focus {{
+                border-color: #8b3dff;
+            }}
+
+            .commands {{
+                display: grid;
+                grid-template-columns:
+                    repeat(auto-fit, minmax(280px, 1fr));
+                gap: 18px;
+            }}
+
+            .command-card {{
+                background: #171020;
+                border: 1px solid #2a1b3d;
+                border-radius: 16px;
+                padding: 22px;
+                transition: 0.2s;
+            }}
+
+            .command-card:hover {{
+                transform: translateY(-3px);
+                border-color: #8b3dff;
+                box-shadow:
+                    0 8px 30px rgba(139, 61, 255, 0.12);
+            }}
+
+            .command-name {{
+                margin-bottom: 12px;
+            }}
+
+            .command-name code {{
+                color: #c58cff;
+                font-size: 20px;
+                font-weight: bold;
+            }}
+
+            .command-description {{
+                color: #ccc;
+                line-height: 1.7;
+            }}
+
+            .aliases {{
+                margin-top: 12px;
+                color: #888;
+                font-size: 13px;
+            }}
+
+            .aliases code {{
+                color: #b66cff;
+            }}
+
+            .empty {{
+                text-align: center;
+                padding: 50px;
+                background: #171020;
+                border-radius: 15px;
+                color: #aaa;
+            }}
+
+            .back {{
+                display: block;
+                width: fit-content;
+                margin: 35px auto 0;
+                padding: 13px 25px;
+                border-radius: 10px;
+                background: #8b3dff;
+                color: white;
+                text-decoration: none;
+            }}
+
+            @media (max-width: 600px) {{
+
+                .header h1 {{
+                    font-size: 32px;
+                }}
+
+                .commands {{
+                    grid-template-columns: 1fr;
+                }}
+
+            }}
+
+        </style>
+
+    </head>
+
+    <body>
+
+        <div class="container">
+
+            <div class="header">
+
+                <h1>📋 أوامر ضياء BOT</h1>
+
+                <p>
+                    جميع الأوامر المسجلة في البوت
+                </p>
+
+            </div>
+
+            <div class="stats">
+
+                <div class="stat">
+
+                    <span class="stat-number">
+                        {count}
+                    </span>
+
+                    <span class="stat-label">
+                        أمر مسجل
+                    </span>
+
+                </div>
+
+            </div>
+
+            <input
+                id="search"
+                class="search"
+                type="text"
+                placeholder="🔎 ابحث عن أمر..."
+                oninput="searchCommands()"
+            >
+
+            <div id="commands" class="commands">
+
+                {command_cards}
+
+            </div>
+
+            <a class="back" href="/dashboard">
+                ⚙️ العودة إلى لوحة التحكم
+            </a>
+
+        </div>
+
+
+        <script>
+
+            function searchCommands() {{
+
+                const search =
+                    document
+                    .getElementById("search")
+                    .value
+                    .toLowerCase()
+                    .trim();
+
+                const cards =
+                    document.querySelectorAll(
+                        ".command-card"
+                    );
+
+                cards.forEach(function(card) {{
+
+                    const text =
+                        card.textContent
+                        .toLowerCase();
+
+                    if (text.includes(search)) {{
+                        card.style.display = "";
+                    }} else {{
+                        card.style.display = "none";
+                    }}
+
+                }});
+            }}
+
+        </script>
 
     </body>
 
@@ -379,7 +820,11 @@ def logout():
 
 if __name__ == "__main__":
 
+    port = int(
+        os.getenv("PORT", "8080")
+    )
+
     app.run(
         host="0.0.0.0",
-        port=8080
+        port=port
     )
