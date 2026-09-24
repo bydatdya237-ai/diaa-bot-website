@@ -1,6 +1,7 @@
 import os
 import secrets
 from urllib.parse import urlencode
+from datetime import datetime
 
 import requests
 from flask import (
@@ -47,10 +48,6 @@ BOT_OWNER_ID = "1154374165642620948"
 
 # =========================================================
 # أوامر الإدارة
-#
-# هذه الأوامر تظهر لصاحب البوت فقط.
-# أي شخص آخر لن يراها في الموقع ولن يستطيع
-# تعديل إعداداتها من الـ API.
 # =========================================================
 
 ADMIN_COMMAND_NAMES = {
@@ -140,7 +137,8 @@ def get_user():
         response = requests.get(
             f"{DISCORD_API}/users/@me",
             headers={
-                "Authorization": f"Bearer {token}"
+                "Authorization":
+                f"Bearer {token}"
             },
             timeout=10,
         )
@@ -486,11 +484,16 @@ def prepare_channels_for_picker(
 
 # =========================================================
 # صلاحية المستخدم على السيرفر
+#
+# الآن يتم التحقق من Discord مباشرة:
+# - مالك السيرفر
+# - Administrator
+# - Manage Server
+#
+# بالإضافة إلى الشخص المسجل كالشخص الذي أضاف البوت.
 # =========================================================
 
-def user_can_control(
-    guild_id
-):
+def user_can_control(guild_id):
 
     user = get_user()
 
@@ -501,22 +504,73 @@ def user_can_control(
         user.get("id")
     )
 
+    guild_id = str(
+        guild_id
+    )
+
+    # =====================================================
+    # التحقق المباشر من سيرفرات المستخدم في Discord
+    # =====================================================
+
+    user_guilds = get_user_guilds()
+
+    for guild in user_guilds:
+
+        if str(
+            guild.get("id")
+        ) != guild_id:
+            continue
+
+        # صاحب السيرفر
+        if guild.get(
+            "owner",
+            False
+        ) is True:
+
+            return True
+
+        try:
+
+            permissions = int(
+                guild.get(
+                    "permissions",
+                    0
+                )
+            )
+
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            permissions = 0
+
+        # Administrator
+        if permissions & 0x8:
+
+            return True
+
+        # Manage Server
+        if permissions & 0x20:
+
+            return True
+
+        break
+
+    # =====================================================
+    # السماح للشخص الذي أضاف البوت
+    # =====================================================
+
     guild_data = guilds_collection.find_one({
 
         "guild_id":
-        str(guild_id)
+        guild_id
 
     })
 
     if not guild_data:
-        return False
 
-    owner_id = str(
-        guild_data.get(
-            "owner_id",
-            ""
-        )
-    )
+        return False
 
     installer_id = str(
         guild_data.get(
@@ -525,15 +579,11 @@ def user_can_control(
         )
     )
 
-    # صاحب السيرفر
-    if user_id == owner_id:
-        return True
-
-    # الشخص الذي أضاف البوت
     if (
         installer_id
         and user_id == installer_id
     ):
+
         return True
 
     return False
@@ -1234,9 +1284,17 @@ href="/logout">
 
 👑 مالك السيرفر
 
-{% else %}
+{% elif guild.status == "installer" %}
 
 🔑 الشخص الذي أضاف البوت
+
+{% elif guild.status == "administrator" %}
+
+🛡️ Administrator
+
+{% else %}
+
+⚙️ Manage Server
 
 {% endif %}
 
@@ -1268,7 +1326,8 @@ href="/server/{{ guild.id }}">
 <p>
 
 تأكد أن البوت موجود في السيرفر
-وأنك صاحب السيرفر أو الشخص الذي أضاف البوت.
+وأن لديك صلاحية إدارة السيرفر
+أو أنك الشخص الذي أضاف البوت.
 
 </p>
 
@@ -1309,77 +1368,223 @@ def dashboard():
         user["id"]
     )
 
-    database_guilds = list(
-        guilds_collection.find({})
-    )
+    # =====================================================
+    # جلب سيرفرات المستخدم من Discord مباشرة
+    # =====================================================
+
+    discord_guilds = get_user_guilds()
 
     result = []
 
-    for guild in database_guilds:
+    for discord_guild in discord_guilds:
 
         guild_id = str(
-            guild.get(
-                "guild_id"
+            discord_guild.get(
+                "id",
+                ""
             )
         )
+
+        if not guild_id:
+            continue
+
+        # =================================================
+        # يجب أن يكون البوت موجوداً
+        # =================================================
 
         if not bot_in_guild(
             guild_id
         ):
             continue
 
+        owner = bool(
+            discord_guild.get(
+                "owner",
+                False
+            )
+        )
+
+        try:
+
+            permissions = int(
+                discord_guild.get(
+                    "permissions",
+                    0
+                )
+            )
+
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            permissions = 0
+
+        is_admin = bool(
+            permissions & 0x8
+        )
+
+        manage_guild = bool(
+            permissions & 0x20
+        )
+
+        # =================================================
+        # بيانات Mongo
+        # =================================================
+
+        database_guild = (
+            guilds_collection.find_one({
+                "guild_id":
+                guild_id
+            })
+        )
+
+        installer_id = ""
+
+        if database_guild:
+
+            installer_id = str(
+                database_guild.get(
+                    "installer_id",
+                    ""
+                )
+            )
+
+        is_installer = bool(
+            installer_id
+            and user_id == installer_id
+        )
+
+        # =================================================
+        # السماح للمستخدم
+        # =================================================
+
+        if not (
+            owner
+            or is_admin
+            or manage_guild
+            or is_installer
+        ):
+
+            continue
+
+        # =================================================
+        # جلب بيانات البوت للسيرفر
+        # =================================================
+
+        bot_guild = get_bot_guild(
+            guild_id
+        )
+
+        guild_name = discord_guild.get(
+            "name",
+            "سيرفر"
+        )
+
+        if bot_guild:
+
+            guild_name = bot_guild.get(
+                "name",
+                guild_name
+            )
+
+        # =================================================
+        # تحديد المالك
+        # =================================================
+
         owner_id = str(
-            guild.get(
+            discord_guild.get(
                 "owner_id",
                 ""
             )
         )
 
-        installer_id = str(
-            guild.get(
-                "installer_id",
-                ""
+        if bot_guild:
+
+            owner_id = str(
+                bot_guild.get(
+                    "owner_id",
+                    owner_id
+                )
             )
+
+        # =================================================
+        # حفظ/تحديث بيانات السيرفر
+        # =================================================
+
+        update_data = {
+
+            "guild_id":
+            guild_id,
+
+            "guild_name":
+            guild_name,
+
+            "owner_id":
+            owner_id,
+
+            "updated_at":
+            datetime.utcnow()
+
+        }
+
+        # لا نمسح installer_id القديم
+        # إذا كان موجوداً
+
+        if is_installer:
+
+            update_data[
+                "installer_id"
+            ] = user_id
+
+        guilds_collection.update_one(
+
+            {
+                "guild_id":
+                guild_id
+            },
+
+            {
+                "$set":
+                update_data
+            },
+
+            upsert=True
+
         )
 
-        if user_id == owner_id:
+        # =================================================
+        # حالة المستخدم
+        # =================================================
 
-            result.append({
+        if owner:
 
-                "id":
-                guild_id,
+            status = "owner"
 
-                "name":
-                guild.get(
-                    "guild_name",
-                    "سيرفر"
-                ),
+        elif is_installer:
 
-                "status":
-                "owner"
+            status = "installer"
 
-            })
+        elif is_admin:
 
-        elif (
-            installer_id
-            and user_id == installer_id
-        ):
+            status = "administrator"
 
-            result.append({
+        else:
 
-                "id":
-                guild_id,
+            status = "manager"
 
-                "name":
-                guild.get(
-                    "guild_name",
-                    "سيرفر"
-                ),
+        result.append({
 
-                "status":
-                "installer"
+            "id":
+            guild_id,
 
-            })
+            "name":
+            guild_name,
+
+            "status":
+            status
+
+        })
 
     return render_template_string(
 
@@ -2201,10 +2406,18 @@ function disableEconomy() {
 """
 
 
+# =========================================================
+# صفحة السيرفر
+# =========================================================
+
 @app.route("/server/<guild_id>")
 def server_page(
     guild_id
 ):
+
+    guild_id = str(
+        guild_id
+    )
 
     if not user_can_control(
         guild_id
@@ -2214,25 +2427,46 @@ def server_page(
             url_for("dashboard")
         )
 
-    guild = guilds_collection.find_one({
+    # =====================================================
+    # بيانات السيرفر مباشرة من Discord
+    # =====================================================
 
-        "guild_id":
-        str(guild_id)
+    discord_guild = get_bot_guild(
+        guild_id
+    )
 
-    })
-
-    if not guild:
+    if not discord_guild:
 
         return (
-            "السيرفر غير موجود.",
+            "البوت غير موجود في هذا السيرفر أو لا يستطيع الوصول إليه.",
             404
         )
+
+    # =====================================================
+    # الرومات مباشرة من Discord
+    # =====================================================
+
+    discord_channels = get_bot_channels(
+        guild_id
+    )
+
+    # =====================================================
+    # الرتب مباشرة من Discord
+    # =====================================================
+
+    discord_roles = get_bot_roles(
+        guild_id
+    )
+
+    # =====================================================
+    # بيانات الاقتصاد لهذا السيرفر فقط
+    # =====================================================
 
     economy = (
         economy_settings_collection.find_one({
 
             "guild_id":
-            str(guild_id)
+            guild_id
 
         })
         or {}
@@ -2256,12 +2490,7 @@ def server_page(
 
     if economy_room_id:
 
-        channels = guild.get(
-            "channels",
-            []
-        )
-
-        for channel in channels:
+        for channel in discord_channels:
 
             if str(
                 channel.get("id")
@@ -2276,14 +2505,50 @@ def server_page(
 
                 break
 
-        if (
-            economy_room_name
-            == "غير محدد"
-        ):
+        if economy_room_name == "غير محدد":
 
             economy_room_name = (
                 economy_room_id
             )
+
+    # =====================================================
+    # تحديث بيانات السيرفر في Mongo
+    # =====================================================
+
+    guilds_collection.update_one(
+
+        {
+            "guild_id":
+            guild_id
+        },
+
+        {
+            "$set": {
+
+                "guild_id":
+                guild_id,
+
+                "guild_name":
+                discord_guild.get(
+                    "name",
+                    "السيرفر"
+                ),
+
+                "channels":
+                discord_channels,
+
+                "roles":
+                discord_roles,
+
+                "updated_at":
+                datetime.utcnow()
+
+            }
+        },
+
+        upsert=True
+
+    )
 
     return render_template_string(
 
@@ -2293,8 +2558,8 @@ def server_page(
         guild_id,
 
         guild_name=
-        guild.get(
-            "guild_name",
+        discord_guild.get(
+            "name",
             "السيرفر"
         ),
 
@@ -2303,18 +2568,12 @@ def server_page(
 
         channel_count=
         len(
-            guild.get(
-                "channels",
-                []
-            )
+            discord_channels
         ),
 
         role_count=
         len(
-            guild.get(
-                "roles",
-                []
-            )
+            discord_roles
         ),
 
         economy_enabled=
@@ -2343,9 +2602,12 @@ def enable_economy():
         silent=True
     ) or {}
 
-    guild_id = data.get(
-        "guild_id"
-    )
+    guild_id = str(
+        data.get(
+            "guild_id",
+            ""
+        )
+    ).strip()
 
     economy_room_id = str(
         data.get(
@@ -2380,6 +2642,10 @@ def enable_economy():
             "ID روم الاقتصاد غير صحيح."
         }, 400
 
+    # =====================================================
+    # التأكد من الروم مباشرة من Discord
+    # =====================================================
+
     channels = get_bot_channels(
         guild_id
     )
@@ -2390,21 +2656,23 @@ def enable_economy():
 
         if str(
             channel.get("id")
-        ) == economy_room_id:
+        ) != economy_room_id:
 
-            channel_type = channel.get(
-                "type"
-            )
+            continue
 
-            if channel_type in (
-                0,
-                5,
-                15
-            ):
+        channel_type = channel.get(
+            "type"
+        )
 
-                channel_exists = True
+        if channel_type in (
+            0,
+            5,
+            15
+        ):
 
-            break
+            channel_exists = True
+
+        break
 
     if not channel_exists:
 
@@ -2414,18 +2682,22 @@ def enable_economy():
             "روم الاقتصاد غير موجود أو ليس رومًا كتابيًا."
         }, 400
 
+    # =====================================================
+    # حفظ إعداد الاقتصاد لهذا السيرفر فقط
+    # =====================================================
+
     economy_settings_collection.update_one(
 
         {
             "guild_id":
-            str(guild_id)
+            guild_id
         },
 
         {
             "$set": {
 
                 "guild_id":
-                str(guild_id),
+                guild_id,
 
                 "currency_enabled":
                 True,
@@ -2459,9 +2731,12 @@ def disable_economy():
         silent=True
     ) or {}
 
-    guild_id = data.get(
-        "guild_id"
-    )
+    guild_id = str(
+        data.get(
+            "guild_id",
+            ""
+        )
+    ).strip()
 
     if not guild_id:
 
@@ -2485,14 +2760,14 @@ def disable_economy():
 
         {
             "guild_id":
-            str(guild_id)
+            guild_id
         },
 
         {
             "$set": {
 
                 "guild_id":
-                str(guild_id),
+                guild_id,
 
                 "currency_enabled":
                 False
@@ -2984,10 +3259,6 @@ onclick='openSettings({{ command.name|tojson }})'>
 
 </div>
 
-
-<!-- =====================================================
-     Modal
-===================================================== -->
 
 <div
 class="modal-bg"
@@ -3518,145 +3789,6 @@ function saveSettings() {
 """
 
 
-@app.route("/commands")
-def commands_page():
-
-    guild_id = request.args.get(
-        "guild"
-    )
-
-    if not guild_id:
-
-        return redirect(
-            url_for("dashboard")
-        )
-
-    if not user_can_control(
-        guild_id
-    ):
-
-        return redirect(
-            url_for("dashboard")
-        )
-
-
-    all_commands = list(
-        commands_collection.find(
-            {},
-            {
-                "_id":0
-            }
-        )
-    )
-
-
-    bot_owner = is_bot_owner()
-
-    commands = []
-
-
-    for command in all_commands:
-
-        command_name = str(
-
-            command.get(
-                "name",
-                command.get(
-                    "command_name",
-                    ""
-                )
-            )
-
-        ).strip()
-
-
-        admin_command = (
-            is_admin_command(
-                command
-            )
-        )
-
-
-        # =================================================
-        # الأوامر الإدارية تظهر لصاحب البوت فقط
-        # =================================================
-
-        if (
-            admin_command
-            and not bot_owner
-        ):
-
-            continue
-
-
-        command["is_admin_display"] = (
-            admin_command
-        )
-
-
-        commands.append(
-            command
-        )
-
-
-    guild = guilds_collection.find_one({
-
-        "guild_id":
-        str(guild_id)
-
-    })
-
-
-    if not guild:
-
-        return (
-            "السيرفر غير موجود.",
-            404
-        )
-
-
-    # =====================================================
-    # جلب الرومات مباشرة من Discord API
-    # =====================================================
-
-    discord_channels = get_bot_channels(
-        guild_id
-    )
-
-
-    channels = prepare_channels_for_picker(
-        discord_channels
-    )
-
-
-    # =====================================================
-    # جلب الرتب
-    # =====================================================
-
-    roles = get_bot_roles(
-        guild_id
-    )
-
-
-    return render_template_string(
-
-        COMMANDS_HTML,
-
-        guild_id=
-        guild_id,
-
-        commands=
-        commands,
-
-        channels=
-        channels,
-
-        roles=
-        roles
-
-    )
-
-
 # =========================================================
 # جلب إعداد أمر
 # =========================================================
@@ -3674,7 +3806,6 @@ def command_settings():
         "command"
     )
 
-
     if (
         not guild_id
         or not command_name
@@ -3683,7 +3814,6 @@ def command_settings():
         return {
             "success":False
         }
-
 
     if not user_can_control(
         guild_id
@@ -3694,11 +3824,6 @@ def command_settings():
             "error":
             "غير مصرح"
         }, 403
-
-
-    # =====================================================
-    # حماية أوامر الإدارة
-    # =====================================================
 
     if (
         command_name_is_admin(
@@ -3713,7 +3838,6 @@ def command_settings():
             "هذا الأمر متاح لصاحب البوت فقط."
         }, 403
 
-
     setting = settings_collection.find_one({
 
         "guild_id":
@@ -3723,7 +3847,6 @@ def command_settings():
         str(command_name)
 
     })
-
 
     if not setting:
 
@@ -3738,7 +3861,6 @@ def command_settings():
             "enabled":False
 
         }
-
 
     return {
 
@@ -3789,7 +3911,6 @@ def save_command():
         silent=True
     ) or {}
 
-
     guild_id = data.get(
         "guild_id"
     )
@@ -3797,7 +3918,6 @@ def save_command():
     command_name = data.get(
         "command_name"
     )
-
 
     channel_ids = [
 
@@ -3810,7 +3930,6 @@ def save_command():
 
     ]
 
-
     role_ids = [
 
         str(x)
@@ -3821,7 +3940,6 @@ def save_command():
         )
 
     ]
-
 
     if (
         not guild_id
@@ -3837,7 +3955,6 @@ def save_command():
 
         }, 400
 
-
     if not user_can_control(
         guild_id
     ):
@@ -3850,11 +3967,6 @@ def save_command():
             "غير مصرح لك"
 
         }, 403
-
-
-    # =====================================================
-    # حماية أوامر الإدارة
-    # =====================================================
 
     if (
         command_name_is_admin(
@@ -3871,7 +3983,6 @@ def save_command():
             "هذا الأمر متاح لصاحب البوت فقط."
 
         }, 403
-
 
     settings_collection.update_one(
 
@@ -3916,7 +4027,6 @@ def save_command():
         upsert=True
 
     )
-
 
     return {
         "success":True
@@ -4125,13 +4235,11 @@ def create_channel():
         "guild"
     )
 
-
     if not guild_id:
 
         return redirect(
             url_for("dashboard")
         )
-
 
     if not user_can_control(
         guild_id
@@ -4140,7 +4248,6 @@ def create_channel():
         return redirect(
             url_for("dashboard")
         )
-
 
     if request.method == "GET":
 
@@ -4153,7 +4260,6 @@ def create_channel():
 
         )
 
-
     name = (
 
         request.form.get(
@@ -4165,12 +4271,10 @@ def create_channel():
 
     )
 
-
     channel_type = request.form.get(
         "type",
         "text"
     )
-
 
     if not name:
 
@@ -4178,7 +4282,6 @@ def create_channel():
             "اسم الروم مطلوب.",
             400
         )
-
 
     payload = {
 
@@ -4191,7 +4294,6 @@ def create_channel():
         else 2
 
     }
-
 
     try:
 
@@ -4216,7 +4318,6 @@ def create_channel():
             500
         )
 
-
     if response.status_code not in (
         200,
         201
@@ -4233,7 +4334,6 @@ def create_channel():
             403
 
         )
-
 
     return redirect(
 
@@ -4277,7 +4377,6 @@ if __name__ == "__main__":
         )
 
     )
-
 
     app.run(
 
