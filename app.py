@@ -1,4 +1,4 @@
-Import os
+import os
 import time
 import secrets
 from urllib.parse import urlencode
