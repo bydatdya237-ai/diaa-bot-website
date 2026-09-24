@@ -1,4 +1,4 @@
-import os
+Import os
 import time
 import secrets
 from urllib.parse import urlencode
@@ -2240,13 +2240,22 @@ def home():
                     واختصارات الأوامر من مكان واحد.
                 </p>
 
-                <a
-                    class="btn btn-yellow"
-                    href="{{ url_for('login') }}"
-                    style="margin-top:15px"
-                >
-                    تسجيل الدخول عبر Discord
-                </a>
+                <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 15px;">
+                    <a
+                        class="btn btn-yellow"
+                        href="{{ url_for('login') }}"
+                    >
+                        تسجيل الدخول عبر Discord
+                    </a>
+                    
+                    <a
+                        class="btn"
+                        href="https://discord.com/oauth2/authorize?client_id=1545572840437186590&permissions=8&integration_type=0&scope=bot"
+                        target="_blank"
+                    >
+                        ➕ إضافة البوت للسيرفر
+                    </a>
+                </div>
 
             </div>
 
