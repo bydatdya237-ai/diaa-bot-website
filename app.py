@@ -1,5 +1,7 @@
 import os
+import time
 import secrets
+import threading
 from urllib.parse import urlencode
 from datetime import datetime
 
@@ -38,12 +40,293 @@ BASE_URL = os.getenv(
 
 REDIRECT_URI = f"{BASE_URL}/callback"
 
-
-# =========================================================
-# صاحب البوت
-# =========================================================
-
 BOT_OWNER_ID = "1154374165642620948"
+
+DISCORD_API = "https://discord.com/api/v10"
+
+
+# =========================================================
+# فحص المتغيرات
+# =========================================================
+
+if not CLIENT_ID:
+    raise RuntimeError("DISCORD_CLIENT_ID غير موجود")
+
+if not CLIENT_SECRET:
+    raise RuntimeError("DISCORD_CLIENT_SECRET غير موجود")
+
+if not BOT_TOKEN:
+    raise RuntimeError("TOKEN غير موجود")
+
+if not MONGO_URI:
+    raise RuntimeError("MONGO_URI غير موجود")
+
+
+# =========================================================
+# MongoDB
+# =========================================================
+
+mongo = MongoClient(MONGO_URI)
+
+db = mongo["discord_bot_db"]
+
+commands_collection = db["website_commands"]
+
+guilds_collection = db["website_guilds"]
+
+settings_collection = db["website_command_settings"]
+
+economy_settings_collection = db["economy_settings"]
+
+
+# =========================================================
+# Discord Session
+# =========================================================
+
+discord_session = requests.Session()
+
+discord_session.headers.update({
+    "Content-Type": "application/json",
+    "User-Agent": "DiaaBOT-Website/1.0",
+    "Authorization": f"Bot {BOT_TOKEN}",
+})
+
+
+# =========================================================
+# حماية 429 + Cache
+# =========================================================
+
+CACHE_TTL = 30
+
+_cache = {}
+
+_cache_lock = threading.Lock()
+
+discord_rate_lock = threading.Lock()
+
+discord_rate_until = 0.0
+
+
+def cache_get(key):
+    now = time.time()
+
+    with _cache_lock:
+        item = _cache.get(key)
+
+        if not item:
+            return None
+
+        expires_at, value = item
+
+        if expires_at <= now:
+            _cache.pop(key, None)
+            return None
+
+        return value
+
+
+def cache_set(key, value, ttl=CACHE_TTL):
+    with _cache_lock:
+        _cache[key] = (
+            time.time() + ttl,
+            value
+        )
+
+
+def cache_delete(key):
+    with _cache_lock:
+        _cache.pop(key, None)
+
+
+def cache_delete_prefix(prefix):
+    with _cache_lock:
+        for key in list(_cache.keys()):
+            if str(key).startswith(prefix):
+                _cache.pop(key, None)
+
+
+def discord_headers():
+    return {
+        "Authorization": f"Bot {BOT_TOKEN}",
+        "Content-Type": "application/json",
+        "User-Agent": "DiaaBOT-Website/1.0",
+    }
+
+
+# =========================================================
+# Discord API Request
+# =========================================================
+
+def discord_request(
+    method,
+    url,
+    *,
+    json=None,
+    data=None,
+    timeout=10,
+    max_attempts=2
+):
+    global discord_rate_until
+
+    for attempt in range(max_attempts):
+
+        # -------------------------------------------------
+        # انتظار إذا Discord أعطى Rate Limit
+        # -------------------------------------------------
+
+        with discord_rate_lock:
+            wait_time = (
+                discord_rate_until - time.time()
+            )
+
+        if wait_time > 0:
+            time.sleep(
+                min(wait_time, 60)
+            )
+
+        # -------------------------------------------------
+        # الطلب
+        # -------------------------------------------------
+
+        try:
+            response = discord_session.request(
+                method,
+                url,
+                headers=discord_headers(),
+                json=json,
+                data=data,
+                timeout=timeout
+            )
+
+        except requests.RequestException:
+            if attempt + 1 >= max_attempts:
+                return None
+
+            time.sleep(2)
+            continue
+
+        # -------------------------------------------------
+        # كل شيء طبيعي
+        # -------------------------------------------------
+
+        if response.status_code != 429:
+            return response
+
+        # -------------------------------------------------
+        # 429
+        # -------------------------------------------------
+
+        retry_after = 0
+
+        try:
+            body = response.json()
+
+            retry_after = float(
+                body.get(
+                    "retry_after",
+                    0
+                )
+            )
+
+        except Exception:
+            pass
+
+        if retry_after <= 0:
+
+            try:
+                retry_after = float(
+                    response.headers.get(
+                        "Retry-After",
+                        "5"
+                    )
+                )
+
+            except (
+                TypeError,
+                ValueError
+            ):
+                retry_after = 5
+
+        retry_after = max(
+            1,
+            min(retry_after, 60)
+        )
+
+        with discord_rate_lock:
+            discord_rate_until = max(
+                discord_rate_until,
+                time.time() + retry_after
+            )
+
+        # آخر محاولة
+        if attempt + 1 >= max_attempts:
+            return response
+
+        time.sleep(retry_after)
+
+    return None
+
+
+# =========================================================
+# Discord OAuth User
+# =========================================================
+
+def get_user():
+
+    token = session.get("access_token")
+
+    if not token:
+        return None
+
+    cache_key = (
+        "oauth_user:"
+        + token[:16]
+    )
+
+    cached = cache_get(cache_key)
+
+    if cached is not None:
+        return cached
+
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/users/@me",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "DiaaBOT-Website/1.0",
+            },
+            timeout=10,
+        )
+
+    except requests.RequestException:
+        return None
+
+    if response.status_code != 200:
+        session.clear()
+        return None
+
+    user = response.json()
+
+    cache_set(
+        cache_key,
+        user,
+        30
+    )
+
+    return user
+
+
+def is_bot_owner():
+
+    user = get_user()
+
+    if not user:
+        return False
+
+    return (
+        str(user.get("id"))
+        == BOT_OWNER_ID
+    )
 
 
 # =========================================================
@@ -61,132 +344,6 @@ ADMIN_COMMAND_NAMES = {
     "سوي روم",
 }
 
-
-# =========================================================
-# فحص المتغيرات
-# =========================================================
-
-if not CLIENT_ID:
-    raise RuntimeError(
-        "DISCORD_CLIENT_ID غير موجود"
-    )
-
-if not CLIENT_SECRET:
-    raise RuntimeError(
-        "DISCORD_CLIENT_SECRET غير موجود"
-    )
-
-if not BOT_TOKEN:
-    raise RuntimeError(
-        "TOKEN غير موجود"
-    )
-
-if not MONGO_URI:
-    raise RuntimeError(
-        "MONGO_URI غير موجود"
-    )
-
-
-# =========================================================
-# MongoDB
-# =========================================================
-
-mongo = MongoClient(MONGO_URI)
-
-db = mongo["discord_bot_db"]
-
-commands_collection = db["website_commands"]
-
-guilds_collection = db["website_guilds"]
-
-settings_collection = db["website_command_settings"]
-
-# =========================================================
-# مهم:
-# إعدادات الاقتصاد مستقلة لكل سيرفر
-#
-# {
-#     "guild_id": "123",
-#     "currency_enabled": True,
-#     "economy_room_id": "456"
-# }
-# =========================================================
-
-economy_settings_collection = db["economy_settings"]
-
-
-# =========================================================
-# Discord API
-# =========================================================
-
-DISCORD_API = "https://discord.com/api/v10"
-
-
-def discord_headers():
-
-    return {
-        "Authorization": f"Bot {BOT_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-
-# =========================================================
-# المستخدم الحالي
-# =========================================================
-
-def get_user():
-
-    token = session.get(
-        "access_token"
-    )
-
-    if not token:
-        return None
-
-    try:
-
-        response = requests.get(
-            f"{DISCORD_API}/users/@me",
-            headers={
-                "Authorization":
-                f"Bearer {token}"
-            },
-            timeout=10,
-        )
-
-    except requests.RequestException:
-
-        return None
-
-    if response.status_code != 200:
-
-        session.clear()
-
-        return None
-
-    return response.json()
-
-
-# =========================================================
-# هل المستخدم صاحب البوت؟
-# =========================================================
-
-def is_bot_owner():
-
-    user = get_user()
-
-    if not user:
-        return False
-
-    return (
-        str(user.get("id"))
-        == BOT_OWNER_ID
-    )
-
-
-# =========================================================
-# هل الأمر إداري؟
-# =========================================================
 
 def is_admin_command(command):
 
@@ -206,22 +363,14 @@ def is_admin_command(command):
     if command_name in ADMIN_COMMAND_NAMES:
         return True
 
-    if command.get(
-        "admin_only"
-    ) is True:
+    if command.get("admin_only") is True:
         return True
 
-    if command.get(
-        "is_admin"
-    ) is True:
+    if command.get("is_admin") is True:
         return True
 
     return False
 
-
-# =========================================================
-# هل اسم الأمر إداري؟
-# =========================================================
 
 def command_name_is_admin(command_name):
 
@@ -232,18 +381,12 @@ def command_name_is_admin(command_name):
     if command_name in ADMIN_COMMAND_NAMES:
         return True
 
-    command = commands_collection.find_one(
-        {
-            "$or": [
-                {
-                    "name": command_name
-                },
-                {
-                    "command_name": command_name
-                }
-            ]
-        }
-    )
+    command = commands_collection.find_one({
+        "$or": [
+            {"name": command_name},
+            {"command_name": command_name}
+        ]
+    })
 
     if command and is_admin_command(command):
         return True
@@ -252,147 +395,184 @@ def command_name_is_admin(command_name):
 
 
 # =========================================================
-# Discord Guilds
+# User Guilds
 # =========================================================
 
 def get_user_guilds():
 
-    token = session.get(
-        "access_token"
-    )
+    token = session.get("access_token")
 
     if not token:
         return []
 
-    try:
+    cache_key = (
+        "oauth_guilds:"
+        + token[:16]
+    )
 
+    cached = cache_get(cache_key)
+
+    if cached is not None:
+        return cached
+
+    try:
         response = requests.get(
             f"{DISCORD_API}/users/@me/guilds",
             headers={
-                "Authorization":
-                f"Bearer {token}"
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "DiaaBOT-Website/1.0",
             },
             timeout=10,
         )
 
     except requests.RequestException:
-
         return []
 
     if response.status_code != 200:
         return []
 
-    return response.json()
+    guilds = response.json()
+
+    cache_set(
+        cache_key,
+        guilds,
+        30
+    )
+
+    return guilds
 
 
-def bot_in_guild(guild_id):
-
-    try:
-
-        response = requests.get(
-            f"{DISCORD_API}/guilds/{guild_id}",
-            headers=discord_headers(),
-            timeout=10,
-        )
-
-    except requests.RequestException:
-
-        return False
-
-    return response.status_code == 200
-
+# =========================================================
+# Bot Guilds
+# =========================================================
 
 def get_bot_guild(guild_id):
 
-    try:
+    guild_id = str(guild_id)
 
-        response = requests.get(
-            f"{DISCORD_API}/guilds/{guild_id}",
-            headers=discord_headers(),
-            timeout=10,
-        )
+    cache_key = (
+        f"bot_guild:{guild_id}"
+    )
 
-    except requests.RequestException:
+    cached = cache_get(cache_key)
 
+    if cached is not None:
+        return cached
+
+    response = discord_request(
+        "GET",
+        f"{DISCORD_API}/guilds/{guild_id}"
+    )
+
+    if response is None:
         return None
 
     if response.status_code != 200:
         return None
 
-    return response.json()
+    guild = response.json()
+
+    cache_set(
+        cache_key,
+        guild,
+        CACHE_TTL
+    )
+
+    return guild
+
+
+def bot_in_guild(guild_id):
+    return get_bot_guild(guild_id) is not None
 
 
 def get_bot_channels(guild_id):
 
-    try:
+    guild_id = str(guild_id)
 
-        response = requests.get(
-            f"{DISCORD_API}/guilds/{guild_id}/channels",
-            headers=discord_headers(),
-            timeout=10,
-        )
+    cache_key = (
+        f"bot_channels:{guild_id}"
+    )
 
-    except requests.RequestException:
+    cached = cache_get(cache_key)
 
+    if cached is not None:
+        return cached
+
+    response = discord_request(
+        "GET",
+        f"{DISCORD_API}/guilds/{guild_id}/channels"
+    )
+
+    if response is None:
         return []
 
     if response.status_code != 200:
         return []
 
-    return response.json()
+    channels = response.json()
+
+    cache_set(
+        cache_key,
+        channels,
+        CACHE_TTL
+    )
+
+    return channels
 
 
 def get_bot_roles(guild_id):
 
-    try:
+    guild_id = str(guild_id)
 
-        response = requests.get(
-            f"{DISCORD_API}/guilds/{guild_id}/roles",
-            headers=discord_headers(),
-            timeout=10,
-        )
+    cache_key = (
+        f"bot_roles:{guild_id}"
+    )
 
-    except requests.RequestException:
+    cached = cache_get(cache_key)
 
+    if cached is not None:
+        return cached
+
+    response = discord_request(
+        "GET",
+        f"{DISCORD_API}/guilds/{guild_id}/roles"
+    )
+
+    if response is None:
         return []
 
     if response.status_code != 200:
         return []
 
-    return response.json()
+    roles = response.json()
+
+    cache_set(
+        cache_key,
+        roles,
+        CACHE_TTL
+    )
+
+    return roles
 
 
 # =========================================================
-# معالجة أنواع الرومات
+# Channel Helpers
 # =========================================================
 
 def normalize_channel_type(channel):
 
-    channel_type = channel.get(
-        "type"
-    )
+    channel_type = channel.get("type")
 
-    if isinstance(
-        channel_type,
-        int
-    ):
+    if isinstance(channel_type, int):
 
         mapping = {
-
             0: "text",
-
             2: "voice",
-
             4: "category",
-
             5: "news",
-
             13: "stage_voice",
-
             15: "forum",
-
             16: "media",
-
         }
 
         return mapping.get(
@@ -405,25 +585,15 @@ def normalize_channel_type(channel):
     ).lower().strip()
 
     mapping = {
-
         "text": "text",
-
         "voice": "voice",
-
         "category": "category",
-
         "news": "news",
-
         "announcement": "news",
-
         "stage_voice": "stage_voice",
-
         "stage": "stage_voice",
-
         "forum": "forum",
-
         "media": "media",
-
     }
 
     return mapping.get(
@@ -432,9 +602,7 @@ def normalize_channel_type(channel):
     )
 
 
-def prepare_channels_for_picker(
-    channels
-):
+def prepare_channels_for_picker(channels):
 
     result = []
 
@@ -446,10 +614,7 @@ def prepare_channels_for_picker(
 
     for channel in channels:
 
-        if not isinstance(
-            channel,
-            dict
-        ):
+        if not isinstance(channel, dict):
             continue
 
         channel_type = normalize_channel_type(
@@ -460,34 +625,23 @@ def prepare_channels_for_picker(
             continue
 
         result.append({
-
             "id": str(
-                channel.get(
-                    "id",
-                    ""
-                )
+                channel.get("id", "")
             ),
-
             "name": channel.get(
                 "name",
                 "روم"
             ),
-
             "type": channel_type,
-
             "position": channel.get(
                 "position",
                 0
             ),
-
         })
 
     result.sort(
         key=lambda x:
-        x.get(
-            "position",
-            0
-        )
+        x.get("position", 0)
     )
 
     return result
@@ -512,10 +666,6 @@ def user_can_control(guild_id):
         guild_id
     )
 
-    # =====================================================
-    # التحقق المباشر من Discord
-    # =====================================================
-
     user_guilds = get_user_guilds()
 
     for guild in user_guilds:
@@ -525,16 +675,13 @@ def user_can_control(guild_id):
         ) != guild_id:
             continue
 
-        # صاحب السيرفر
         if guild.get(
             "owner",
             False
-        ) is True:
-
+        ):
             return True
 
         try:
-
             permissions = int(
                 guild.get(
                     "permissions",
@@ -546,34 +693,24 @@ def user_can_control(guild_id):
             ValueError,
             TypeError
         ):
-
             permissions = 0
 
         # Administrator
         if permissions & 0x8:
-
             return True
 
         # Manage Server
         if permissions & 0x20:
-
             return True
 
         break
 
-    # =====================================================
     # الشخص الذي أضاف البوت
-    # =====================================================
-
     guild_data = guilds_collection.find_one({
-
-        "guild_id":
-        guild_id
-
+        "guild_id": guild_id
     })
 
     if not guild_data:
-
         return False
 
     installer_id = str(
@@ -583,14 +720,10 @@ def user_can_control(guild_id):
         )
     )
 
-    if (
+    return bool(
         installer_id
         and user_id == installer_id
-    ):
-
-        return True
-
-    return False
+    )
 
 
 # =========================================================
@@ -600,221 +733,125 @@ def user_can_control(guild_id):
 HOME_HTML = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
-
 <head>
-
 <meta charset="UTF-8">
-
-<meta name="viewport"
-content="width=device-width,initial-scale=1">
-
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ضياء BOT</title>
 
 <style>
+*{box-sizing:border-box}
 
-* {
-    box-sizing:border-box;
+body{
+margin:0;
+font-family:Arial,sans-serif;
+background:
+radial-gradient(circle at top right,#682cff55,transparent 35%),
+radial-gradient(circle at bottom left,#9b4dff33,transparent 35%),
+#090914;
+color:white;
+min-height:100vh
 }
 
-body {
-    margin:0;
-    font-family:Arial,sans-serif;
-
-    background:
-        radial-gradient(
-            circle at top right,
-            #682cff55,
-            transparent 35%
-        ),
-
-        radial-gradient(
-            circle at bottom left,
-            #9b4dff33,
-            transparent 35%
-        ),
-
-        #090914;
-
-    color:white;
-
-    min-height:100vh;
+.container{
+width:min(1050px,92%);
+margin:auto
 }
 
-.container {
-    width:min(1050px,92%);
-    margin:auto;
+nav{
+height:75px;
+display:flex;
+align-items:center;
+justify-content:space-between
 }
 
-nav {
-    height:75px;
-
-    display:flex;
-
-    align-items:center;
-
-    justify-content:space-between;
+.logo{
+font-size:24px;
+font-weight:bold
 }
 
-.logo {
-    font-size:24px;
-    font-weight:bold;
+.logo span{
+color:#a66cff
 }
 
-.logo span {
-    color:#a66cff;
+.btn{
+display:inline-block;
+border:0;
+padding:13px 22px;
+border-radius:13px;
+background:linear-gradient(135deg,#7b3cff,#b16cff);
+color:white;
+text-decoration:none;
+font-weight:bold;
+cursor:pointer
 }
 
-.btn {
-    display:inline-block;
-
-    border:0;
-
-    padding:13px 22px;
-
-    border-radius:13px;
-
-    background:
-        linear-gradient(
-            135deg,
-            #7b3cff,
-            #b16cff
-        );
-
-    color:white;
-
-    text-decoration:none;
-
-    font-weight:bold;
-
-    cursor:pointer;
-
-    box-shadow:
-        0 8px 25px #6b35ff33;
+.hero{
+text-align:center;
+padding:100px 0 80px
 }
 
-.btn:hover {
-    transform:translateY(-1px);
+.badge{
+display:inline-block;
+background:#ffffff0d;
+border:1px solid #ffffff15;
+padding:8px 14px;
+border-radius:30px;
+color:#cbb8ff;
+margin-bottom:20px
 }
 
-.hero {
-    text-align:center;
-
-    padding:
-        100px 0
-        80px;
+h1{
+font-size:clamp(40px,8vw,75px);
+margin:10px 0
 }
 
-.badge {
-    display:inline-block;
-
-    background:#ffffff0d;
-
-    border:
-        1px solid
-        #ffffff15;
-
-    padding:8px 14px;
-
-    border-radius:30px;
-
-    color:#cbb8ff;
-
-    margin-bottom:20px;
+h1 span{
+background:linear-gradient(90deg,#a66cff,#e0caff);
+-webkit-background-clip:text;
+color:transparent
 }
 
-h1 {
-    font-size:
-        clamp(
-            40px,
-            8vw,
-            75px
-        );
-
-    margin:10px 0;
+.hero p{
+color:#aaa7b8;
+font-size:18px;
+line-height:1.8;
+max-width:650px;
+margin:20px auto 30px
 }
 
-h1 span {
-
-    background:
-        linear-gradient(
-            90deg,
-            #a66cff,
-            #e0caff
-        );
-
-    -webkit-background-clip:
-        text;
-
-    color:transparent;
+.card{
+background:#ffffff08;
+border:1px solid #ffffff12;
+border-radius:22px;
+padding:25px
 }
 
-.hero p {
-
-    color:#aaa7b8;
-
-    font-size:18px;
-
-    line-height:1.8;
-
-    max-width:650px;
-
-    margin:
-        20px auto
-        30px;
+.features{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:15px;
+padding-bottom:50px
 }
 
-.card {
-
-    background:#ffffff08;
-
-    border:
-        1px solid
-        #ffffff12;
-
-    border-radius:22px;
-
-    padding:25px;
-
-    backdrop-filter:blur(15px);
+.feature h3{
+margin-top:0
 }
 
-.features {
-
-    display:grid;
-
-    grid-template-columns:
-        repeat(3,1fr);
-
-    gap:15px;
-
-    padding-bottom:50px;
+.feature p{
+color:#9996a8;
+line-height:1.7
 }
 
-.feature h3 {
-    margin-top:0;
+@media(max-width:700px){
+.features{
+grid-template-columns:1fr
 }
 
-.feature p {
-
-    color:#9996a8;
-
-    line-height:1.7;
+.hero{
+padding-top:65px
 }
-
-@media(max-width:700px) {
-
-    .features {
-        grid-template-columns:1fr;
-    }
-
-    .hero {
-        padding-top:65px;
-    }
-
 }
-
 </style>
-
 </head>
 
 <body>
@@ -827,16 +864,11 @@ h1 span {
 ضياء <span>BOT</span>
 </div>
 
-<a
-class="btn"
-href="/login">
-
+<a class="btn" href="/login">
 تسجيل الدخول
-
 </a>
 
 </nav>
-
 
 <section class="hero">
 
@@ -845,124 +877,76 @@ Discord Bot Control Panel
 </div>
 
 <h1>
-
 تحكم ببوتك
-
-<span>
-بسهولة.
-</span>
-
+<span>بسهولة.</span>
 </h1>
 
 <p>
-
 لوحة تحكم احترافية لبوت ضياء،
 لإدارة الأوامر والرومات والرتب
 من مكان واحد وبواجهة بسيطة.
-
 </p>
 
-<a
-class="btn"
-href="/login">
-
+<a class="btn" href="/login">
 🚀 دخول لوحة التحكم
-
 </a>
 
 </section>
 
-
 <section class="features">
 
-
 <div class="card feature">
-
-<h3>
-⚙️ إدارة الأوامر
-</h3>
-
+<h3>⚙️ إدارة الأوامر</h3>
 <p>
-
 اختر الرومات والرتب المسموح لها
 باستخدام كل أمر.
-
 </p>
-
 </div>
 
-
 <div class="card feature">
-
-<h3>
-📁 إدارة الرومات
-</h3>
-
+<h3>📁 إدارة الرومات</h3>
 <p>
-
 أنشئ رومات جديدة من لوحة التحكم
 بدون الحاجة للدخول إلى ديسكورد.
-
 </p>
-
 </div>
-
 
 <div class="card feature">
-
-<h3>
-🔐 تحكم آمن
-</h3>
-
+<h3>🔐 تحكم آمن</h3>
 <p>
-
 لوحة التحكم متاحة لصاحب السيرفر
 والشخص الذي أضاف البوت.
-
 </p>
-
 </div>
-
 
 </section>
 
 </div>
 
 </body>
-
 </html>
 """
+
+
+@app.route("/")
+def home():
+    return render_template_string(
+        HOME_HTML
+    )
 
 
 # =========================================================
 # تسجيل الدخول
 # =========================================================
 
-@app.route("/")
-def home():
-
-    return render_template_string(
-        HOME_HTML
-    )
-
-
 @app.route("/login")
 def login():
 
     params = {
-
-        "client_id":
-        CLIENT_ID,
-
-        "response_type":
-        "code",
-
-        "redirect_uri":
-        REDIRECT_URI,
-
-        "scope":
-        "identify guilds",
-
+        "client_id": CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": REDIRECT_URI,
+        "scope": "identify guilds",
     }
 
     url = (
@@ -976,12 +960,9 @@ def login():
 @app.route("/callback")
 def callback():
 
-    code = request.args.get(
-        "code"
-    )
+    code = request.args.get("code")
 
     if not code:
-
         return (
             "لم يتم استلام كود تسجيل الدخول.",
             400
@@ -990,48 +971,34 @@ def callback():
     try:
 
         response = requests.post(
-
             f"{DISCORD_API}/oauth2/token",
 
             data={
-
-                "client_id":
-                CLIENT_ID,
-
-                "client_secret":
-                CLIENT_SECRET,
-
-                "grant_type":
-                "authorization_code",
-
-                "code":
-                code,
-
-                "redirect_uri":
-                REDIRECT_URI,
-
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": REDIRECT_URI,
             },
 
             headers={
-
                 "Content-Type":
-                "application/x-www-form-urlencoded"
+                "application/x-www-form-urlencoded",
 
+                "User-Agent":
+                "DiaaBOT-Website/1.0"
             },
 
             timeout=10,
-
         )
 
     except requests.RequestException:
-
         return (
             "تعذر الاتصال بـ Discord.",
             500
         )
 
     if response.status_code != 200:
-
         return (
             "فشل تسجيل الدخول إلى Discord.",
             400
@@ -1056,13 +1023,8 @@ def callback():
 def invite():
 
     params = {
-
-        "client_id":
-        CLIENT_ID,
-
-        "scope":
-        "bot applications.commands",
-
+        "client_id": CLIENT_ID,
+        "scope": "bot applications.commands",
     }
 
     url = (
@@ -1079,167 +1041,101 @@ def invite():
 
 DASHBOARD_HTML = """
 <!DOCTYPE html>
-
 <html lang="ar" dir="rtl">
-
 <head>
 
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 
-<meta name="viewport"
-content="width=device-width,initial-scale=1">
-
-<title>
-لوحة التحكم - ضياء BOT
-</title>
+<title>لوحة التحكم - ضياء BOT</title>
 
 <style>
 
-body {
-
-    margin:0;
-
-    background:#090914;
-
-    color:white;
-
-    font-family:Arial,sans-serif;
-
+body{
+margin:0;
+background:#090914;
+color:white;
+font-family:Arial,sans-serif
 }
 
-.container {
-
-    width:min(1000px,92%);
-
-    margin:auto;
-
+.container{
+width:min(1000px,92%);
+margin:auto
 }
 
-nav {
-
-    height:75px;
-
-    display:flex;
-
-    justify-content:space-between;
-
-    align-items:center;
-
+nav{
+height:75px;
+display:flex;
+justify-content:space-between;
+align-items:center
 }
 
-.logo {
-
-    font-size:23px;
-
-    font-weight:bold;
-
+.logo{
+font-size:23px;
+font-weight:bold
 }
 
-.logo span {
-
-    color:#a66cff;
-
+.logo span{
+color:#a66cff
 }
 
-.card {
-
-    background:#ffffff08;
-
-    border:
-        1px solid
-        #ffffff12;
-
-    border-radius:20px;
-
-    padding:22px;
-
-    margin-bottom:15px;
-
+.card{
+background:#ffffff08;
+border:1px solid #ffffff12;
+border-radius:20px;
+padding:22px;
+margin-bottom:15px
 }
 
-.server {
-
-    display:flex;
-
-    align-items:center;
-
-    justify-content:space-between;
-
-    gap:15px;
-
+.server{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:15px
 }
 
-.server-name {
-
-    font-size:19px;
-
-    font-weight:bold;
-
+.server-name{
+font-size:19px;
+font-weight:bold
 }
 
-.small {
-
-    color:#92909f;
-
-    font-size:13px;
-
-    margin-top:6px;
-
+.small{
+color:#92909f;
+font-size:13px;
+margin-top:6px
 }
 
-.btn {
-
-    border:0;
-
-    border-radius:12px;
-
-    padding:11px 18px;
-
-    background:
-        linear-gradient(
-            135deg,
-            #7136ff,
-            #ad65ff
-        );
-
-    color:white;
-
-    text-decoration:none;
-
-    font-weight:bold;
-
+.btn{
+border:0;
+border-radius:12px;
+padding:11px 18px;
+background:linear-gradient(135deg,#7136ff,#ad65ff);
+color:white;
+text-decoration:none;
+font-weight:bold;
+cursor:pointer
 }
 
-.empty {
-
-    text-align:center;
-
-    padding:50px 20px;
-
-    color:#aaa7b8;
-
+.empty{
+text-align:center;
+padding:50px 20px;
+color:#aaa7b8
 }
 
-@media(max-width:600px) {
+@media(max-width:600px){
 
-    .server {
+.server{
+flex-direction:column;
+align-items:stretch
+}
 
-        flex-direction:column;
-
-        align-items:stretch;
-
-    }
-
-    .btn {
-
-        text-align:center;
-
-    }
+.btn{
+text-align:center
+}
 
 }
 
 </style>
-
 </head>
 
 <body>
@@ -1252,21 +1148,15 @@ nav {
 ضياء <span>BOT</span>
 </div>
 
-<a
-class="btn"
-href="/logout">
-
+<a class="btn" href="/logout">
 تسجيل خروج
-
 </a>
 
 </nav>
 
-
 <h1>
 سيرفراتك
 </h1>
-
 
 {% if guilds %}
 
@@ -1277,42 +1167,31 @@ href="/logout">
 <div>
 
 <div class="server-name">
-
 {{ guild.name }}
-
 </div>
 
 <div class="small">
 
 {% if guild.status == "owner" %}
-
 👑 مالك السيرفر
 
 {% elif guild.status == "installer" %}
-
 🔑 الشخص الذي أضاف البوت
 
 {% elif guild.status == "administrator" %}
-
 🛡️ Administrator
 
 {% else %}
-
 ⚙️ Manage Server
-
 {% endif %}
 
 </div>
 
 </div>
 
-
-<a
-class="btn"
+<a class="btn"
 href="/server/{{ guild.id }}">
-
 إدارة السيرفر
-
 </a>
 
 </div>
@@ -1328,21 +1207,15 @@ href="/server/{{ guild.id }}">
 </h2>
 
 <p>
-
 تأكد أن البوت موجود في السيرفر
 وأن لديك صلاحية إدارة السيرفر
 أو أنك الشخص الذي أضاف البوت.
-
 </p>
 
 <br>
 
-<a
-class="btn"
-href="/invite">
-
+<a class="btn" href="/invite">
 ➕ إضافة البوت
-
 </a>
 
 </div>
@@ -1352,7 +1225,6 @@ href="/invite">
 </div>
 
 </body>
-
 </html>
 """
 
@@ -1363,7 +1235,6 @@ def dashboard():
     user = get_user()
 
     if not user:
-
         return redirect(
             url_for("login")
         )
@@ -1388,9 +1259,9 @@ def dashboard():
         if not guild_id:
             continue
 
-        if not bot_in_guild(
-            guild_id
-        ):
+        # لا نكرر طلب guild منفصل هنا
+        # يكفي التحقق من وجود البوت
+        if not bot_in_guild(guild_id):
             continue
 
         owner = bool(
@@ -1401,7 +1272,6 @@ def dashboard():
         )
 
         try:
-
             permissions = int(
                 discord_guild.get(
                     "permissions",
@@ -1413,7 +1283,6 @@ def dashboard():
             ValueError,
             TypeError
         ):
-
             permissions = 0
 
         is_admin = bool(
@@ -1424,17 +1293,13 @@ def dashboard():
             permissions & 0x20
         )
 
-        database_guild = (
-            guilds_collection.find_one({
-                "guild_id":
-                guild_id
-            })
-        )
+        database_guild = guilds_collection.find_one({
+            "guild_id": guild_id
+        })
 
         installer_id = ""
 
         if database_guild:
-
             installer_id = str(
                 database_guild.get(
                     "installer_id",
@@ -1453,24 +1318,12 @@ def dashboard():
             or manage_guild
             or is_installer
         ):
-
             continue
-
-        bot_guild = get_bot_guild(
-            guild_id
-        )
 
         guild_name = discord_guild.get(
             "name",
             "سيرفر"
         )
-
-        if bot_guild:
-
-            guild_name = bot_guild.get(
-                "name",
-                guild_name
-            )
 
         owner_id = str(
             discord_guild.get(
@@ -1479,88 +1332,44 @@ def dashboard():
             )
         )
 
-        if bot_guild:
-
-            owner_id = str(
-                bot_guild.get(
-                    "owner_id",
-                    owner_id
-                )
-            )
-
         update_data = {
-
-            "guild_id":
-            guild_id,
-
-            "guild_name":
-            guild_name,
-
-            "owner_id":
-            owner_id,
-
-            "updated_at":
-            datetime.utcnow()
-
+            "guild_id": guild_id,
+            "guild_name": guild_name,
+            "owner_id": owner_id,
+            "updated_at": datetime.utcnow()
         }
 
         if is_installer:
-
-            update_data[
-                "installer_id"
-            ] = user_id
+            update_data["installer_id"] = user_id
 
         guilds_collection.update_one(
-
             {
-                "guild_id":
-                guild_id
+                "guild_id": guild_id
             },
-
             {
-                "$set":
-                update_data
+                "$set": update_data
             },
-
             upsert=True
-
         )
 
         if owner:
-
             status = "owner"
-
         elif is_installer:
-
             status = "installer"
-
         elif is_admin:
-
             status = "administrator"
-
         else:
-
             status = "manager"
 
         result.append({
-
-            "id":
-            guild_id,
-
-            "name":
-            guild_name,
-
-            "status":
-            status
-
+            "id": guild_id,
+            "name": guild_name,
+            "status": status
         })
 
     return render_template_string(
-
         DASHBOARD_HTML,
-
         guilds=result
-
     )
 
 
@@ -1570,277 +1379,135 @@ def dashboard():
 
 SERVER_HTML = """
 <!DOCTYPE html>
-
 <html lang="ar" dir="rtl">
-
 <head>
 
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 
-<meta name="viewport"
-content="width=device-width,initial-scale=1">
-
-<title>
-{{ guild_name }} - ضياء BOT
-</title>
+<title>{{ guild_name }} - ضياء BOT</title>
 
 <style>
 
-body {
-
-    margin:0;
-
-    background:#090914;
-
-    color:white;
-
-    font-family:Arial,sans-serif;
-
+body{
+margin:0;
+background:#090914;
+color:white;
+font-family:Arial,sans-serif
 }
 
-.container {
-
-    width:min(950px,92%);
-
-    margin:auto;
-
+.container{
+width:min(950px,92%);
+margin:auto
 }
 
-nav {
-
-    height:75px;
-
-    display:flex;
-
-    justify-content:space-between;
-
-    align-items:center;
-
+nav{
+height:75px;
+display:flex;
+justify-content:space-between;
+align-items:center
 }
 
-.card {
-
-    background:#ffffff08;
-
-    border:
-        1px solid
-        #ffffff12;
-
-    border-radius:22px;
-
-    padding:25px;
-
-    margin-bottom:16px;
-
+.card{
+background:#ffffff08;
+border:1px solid #ffffff12;
+border-radius:22px;
+padding:25px;
+margin-bottom:16px
 }
 
-h1 {
-
-    font-size:34px;
-
+h1{
+font-size:34px
 }
 
-.grid {
-
-    display:grid;
-
-    grid-template-columns:
-        repeat(2,1fr);
-
-    gap:15px;
-
+.grid{
+display:grid;
+grid-template-columns:repeat(2,1fr);
+gap:15px
 }
 
-.big {
-
-    font-size:30px;
-
-    font-weight:bold;
-
-    color:#b58aff;
-
+.big{
+font-size:30px;
+font-weight:bold;
+color:#b58aff
 }
 
-.btn {
-
-    display:inline-block;
-
-    padding:13px 20px;
-
-    border-radius:13px;
-
-    background:
-        linear-gradient(
-            135deg,
-            #7136ff,
-            #ad65ff
-        );
-
-    color:white;
-
-    text-decoration:none;
-
-    font-weight:bold;
-
-    margin-top:10px;
-
-    border:0;
-
-    cursor:pointer;
-
+.btn{
+display:inline-block;
+padding:13px 20px;
+border-radius:13px;
+background:linear-gradient(135deg,#7136ff,#ad65ff);
+color:white;
+text-decoration:none;
+font-weight:bold;
+margin-top:10px;
+border:0;
+cursor:pointer
 }
 
-.secondary {
-
-    background:#ffffff0d;
-
+.secondary{
+background:#ffffff0d
 }
 
-input {
-
-    width:100%;
-
-    padding:14px;
-
-    margin-top:10px;
-
-    box-sizing:border-box;
-
-    border-radius:12px;
-
-    border:
-        1px solid
-        #ffffff14;
-
-    background:#ffffff0b;
-
-    color:white;
-
-    outline:none;
-
+input{
+width:100%;
+padding:14px;
+margin-top:10px;
+box-sizing:border-box;
+border-radius:12px;
+border:1px solid #ffffff14;
+background:#ffffff0b;
+color:white;
+outline:none
 }
 
-input:focus {
-
-    border-color:#8b5cff;
-
+.status{
+display:inline-block;
+padding:7px 12px;
+border-radius:20px;
+margin-top:10px;
+font-size:13px
 }
 
-.status {
-
-    display:inline-block;
-
-    padding:7px 12px;
-
-    border-radius:20px;
-
-    margin-top:10px;
-
-    font-size:13px;
-
+.status.on{
+background:#22c55e22;
+color:#6ee7a0
 }
 
-.status.on {
-
-    background:#22c55e22;
-
-    color:#6ee7a0;
-
+.status.off{
+background:#ef444422;
+color:#ff8585
 }
 
-.status.off {
-
-    background:#ef444422;
-
-    color:#ff8585;
-
+.economy-actions{
+display:flex;
+gap:10px;
+flex-wrap:wrap
 }
 
-.economy-actions {
-
-    display:flex;
-
-    gap:10px;
-
-    flex-wrap:wrap;
-
+.danger{
+background:linear-gradient(135deg,#b42323,#e05252)
 }
 
-.danger {
-
-    background:
-        linear-gradient(
-            135deg,
-            #b42323,
-            #e05252
-        );
-
+.info{
+color:#9d9aaa;
+line-height:1.7;
+font-size:14px
 }
 
-.info {
+@media(max-width:650px){
 
-    color:#9d9aaa;
-
-    line-height:1.7;
-
-    font-size:14px;
-
+.grid{
+grid-template-columns:1fr
 }
 
-.message {
-
-    margin-top:12px;
-
-    padding:12px;
-
-    border-radius:12px;
-
-    display:none;
-
+.economy-actions{
+flex-direction:column
 }
-
-.success {
-
-    background:#22c55e18;
-
-    color:#7af0a5;
-
-}
-
-.error {
-
-    background:#ef444418;
-
-    color:#ff8a8a;
-
-}
-
-@media(max-width:650px) {
-
-    .grid {
-
-        grid-template-columns:1fr;
-
-    }
-
-    .economy-actions {
-
-        flex-direction:column;
-
-    }
-
-    .economy-actions .btn {
-
-        width:100%;
-
-        text-align:center;
-
-    }
 
 }
 
 </style>
-
 </head>
 
 <body>
@@ -1849,24 +1516,17 @@ input:focus {
 
 <nav>
 
-<a
-class="btn secondary"
+<a class="btn secondary"
 href="/dashboard">
-
 ← السيرفرات
-
 </a>
 
-<a
-class="btn secondary"
+<a class="btn secondary"
 href="/logout">
-
 خروج
-
 </a>
 
 </nav>
-
 
 <div class="card">
 
@@ -1880,68 +1540,46 @@ href="/logout">
 
 </div>
 
-
 <div class="grid">
 
-
 <div class="card">
-
 <div class="big">
 {{ command_count }}
 </div>
-
 <div>
 الأوامر
 </div>
-
 </div>
 
-
 <div class="card">
-
 <div class="big">
 {{ channel_count }}
 </div>
-
 <div>
 الرومات
 </div>
-
 </div>
 
-
 <div class="card">
-
 <div class="big">
 {{ role_count }}
 </div>
-
 <div>
 الرتب
 </div>
-
 </div>
 
-
 <div class="card">
-
 <div class="big">
 ⚙️
 </div>
-
 <div>
 إدارة البوت
 </div>
+</div>
 
 </div>
 
-
-</div>
-
-
-<!-- =====================================================
-     نظام الاقتصاد
-===================================================== -->
 
 <div class="card">
 
@@ -1954,20 +1592,17 @@ href="/logout">
 من هنا تقوم بتفعيل نظام الاقتصاد لهذا السيرفر
 وتحديد روم الاقتصاد.
 
-<br>
+<br><br>
 
 تغيير الإعدادات هنا لا يحذف أرصدة اللاعبين
-ولا يصفر أي بيانات موجودة.
+ولا يصفر أي بيانات.
 
 </p>
-
 
 {% if economy_enabled %}
 
 <div class="status on">
-
 🟢 نظام الاقتصاد مفعّل
-
 </div>
 
 <p class="info">
@@ -1987,24 +1622,16 @@ ID:
 
 </p>
 
-
 <div class="economy-actions">
 
-<button
-class="btn"
+<button class="btn"
 onclick="changeEconomyRoom()">
-
 ⚙️ تغيير روم الاقتصاد
-
 </button>
 
-
-<button
-class="btn danger"
+<button class="btn danger"
 onclick="disableEconomy()">
-
 🔴 تعطيل نظام الاقتصاد
-
 </button>
 
 </div>
@@ -2012,17 +1639,12 @@ onclick="disableEconomy()">
 {% else %}
 
 <div class="status off">
-
 🔴 نظام الاقتصاد غير مفعّل
-
 </div>
 
 <p class="info">
-
 أدخل ID الروم الذي تريد استخدامه للاقتصاد.
-
 </p>
-
 
 <input
 id="economyRoomId"
@@ -2030,29 +1652,15 @@ placeholder="مثال: 1544334212734124174"
 inputmode="numeric"
 >
 
-
-<button
-class="btn"
+<button class="btn"
 onclick="enableEconomy()">
-
 💰 تفعيل نظام الاقتصاد
-
 </button>
 
 {% endif %}
 
-
-<div
-id="economyMessage"
-class="message">
 </div>
 
-</div>
-
-
-<!-- =====================================================
-     إدارة الأوامر
-===================================================== -->
 
 <div class="card">
 
@@ -2061,26 +1669,17 @@ class="message">
 </h2>
 
 <p>
-
 تحكم في الرومات والرتب والتفعيل
 الخاص بكل أمر.
-
 </p>
 
-<a
-class="btn"
+<a class="btn"
 href="/commands?guild={{ guild_id }}">
-
 فتح الأوامر
-
 </a>
 
 </div>
 
-
-<!-- =====================================================
-     إنشاء روم
-===================================================== -->
 
 <div class="card">
 
@@ -2089,17 +1688,12 @@ href="/commands?guild={{ guild_id }}">
 </h2>
 
 <p>
-
 أنشئ روم جديد داخل السيرفر.
-
 </p>
 
-<a
-class="btn"
+<a class="btn"
 href="/create-channel?guild={{ guild_id }}">
-
 إنشاء روم
-
 </a>
 
 </div>
@@ -2109,320 +1703,207 @@ href="/create-channel?guild={{ guild_id }}">
 
 <script>
 
-function showEconomyMessage(
-    message,
-    success
-) {
+function enableEconomy(){
 
-    const box =
-        document.getElementById(
-            "economyMessage"
-        );
+const input=document.getElementById(
+"economyRoomId"
+);
 
-    box.innerText = message;
+if(!input)return;
 
-    box.className =
-        "message " +
-        (
-            success
-            ? "success"
-            : "error"
-        );
+const roomId=input.value.trim();
 
-    box.style.display =
-        "block";
+if(!/^\\d+$/.test(roomId)){
+
+alert("❌ أدخل ID روم صحيح.");
+
+return;
+
 }
 
+fetch(
+"/api/economy/enable",
+{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+guild_id:"{{ guild_id }}",
+economy_room_id:roomId
+})
+}
+)
+.then(r=>r.json())
+.then(data=>{
 
-function enableEconomy() {
+if(data.success){
 
-    const input =
-        document.getElementById(
-            "economyRoomId"
-        );
+alert(
+"✅ تم تفعيل نظام الاقتصاد."
+);
 
-    if (!input) {
-        return;
-    }
+location.reload();
 
-    const roomId =
-        input.value.trim();
+}else{
 
-    if (!/^\\d+$/.test(roomId)) {
+alert(
+"❌ "+
+(data.error || "حدث خطأ.")
+);
 
-        showEconomyMessage(
-            "❌ أدخل ID روم صحيح.",
-            false
-        );
+}
 
-        return;
-    }
+})
+.catch(()=>{
 
-    fetch(
-        "/api/economy/enable",
-        {
+alert(
+"❌ تعذر الاتصال بالموقع."
+);
 
-            method:"POST",
-
-            headers:{
-                "Content-Type":
-                "application/json"
-            },
-
-            body:JSON.stringify({
-
-                guild_id:
-                "{{ guild_id }}",
-
-                economy_room_id:
-                roomId
-
-            })
-
-        }
-    )
-    .then(
-        r => r.json()
-    )
-    .then(
-        data => {
-
-            if (data.success) {
-
-                showEconomyMessage(
-                    "✅ تم حفظ وتفعيل نظام الاقتصاد في هذا السيرفر.",
-                    true
-                );
-
-                setTimeout(
-                    () =>
-                    location.reload(),
-                    700
-                );
-
-            } else {
-
-                showEconomyMessage(
-                    "❌ " +
-                    (
-                        data.error ||
-                        "حدث خطأ."
-                    ),
-                    false
-                );
-
-            }
-
-        }
-    )
-    .catch(
-        () => {
-
-            showEconomyMessage(
-                "❌ تعذر الاتصال بالموقع.",
-                false
-            );
-
-        }
-    );
+});
 
 }
 
 
-function changeEconomyRoom() {
+function changeEconomyRoom(){
 
-    const roomId =
-        prompt(
-            "أدخل ID روم الاقتصاد الجديد:"
-        );
+const roomId=prompt(
+"أدخل ID روم الاقتصاد الجديد:"
+);
 
-    if (!roomId) {
-        return;
-    }
+if(!roomId)return;
 
-    const cleanRoomId =
-        roomId.trim();
+const cleanRoomId=roomId.trim();
 
-    if (
-        !/^\\d+$/.test(
-            cleanRoomId
-        )
-    ) {
+if(!/^\\d+$/.test(cleanRoomId)){
 
-        alert(
-            "❌ ID الروم غير صحيح."
-        );
+alert(
+"❌ ID الروم غير صحيح."
+);
 
-        return;
-    }
+return;
 
-    fetch(
-        "/api/economy/enable",
-        {
+}
 
-            method:"POST",
+fetch(
+"/api/economy/enable",
+{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+guild_id:"{{ guild_id }}",
+economy_room_id:cleanRoomId
+})
+}
+)
+.then(r=>r.json())
+.then(data=>{
 
-            headers:{
-                "Content-Type":
-                "application/json"
-            },
+if(data.success){
 
-            body:JSON.stringify({
+alert(
+"✅ تم حفظ روم الاقتصاد الجديد."
+);
 
-                guild_id:
-                "{{ guild_id }}",
+location.reload();
 
-                economy_room_id:
-                cleanRoomId
+}else{
 
-            })
+alert(
+"❌ "+
+(data.error || "حدث خطأ.")
+);
 
-        }
-    )
-    .then(
-        r => r.json()
-    )
-    .then(
-        data => {
+}
 
-            if (data.success) {
+})
+.catch(()=>{
 
-                alert(
-                    "✅ تم حفظ روم الاقتصاد الجديد."
-                );
+alert(
+"❌ تعذر الاتصال بالموقع."
+);
 
-                location.reload();
-
-            } else {
-
-                alert(
-                    "❌ " +
-                    (
-                        data.error ||
-                        "حدث خطأ."
-                    )
-                );
-
-            }
-
-        }
-    )
-    .catch(
-        () => {
-
-            alert(
-                "❌ تعذر الاتصال بالموقع."
-            );
-
-        }
-    );
+});
 
 }
 
 
-function disableEconomy() {
+function disableEconomy(){
 
-    if (
-        !confirm(
-            "هل أنت متأكد من تعطيل نظام الاقتصاد؟\\n\\nلن يتم حذف أرصدة اللاعبين أو أي بيانات."
-        )
-    ) {
+if(!confirm(
+"هل أنت متأكد من تعطيل نظام الاقتصاد؟\\n\\nلن يتم حذف أرصدة اللاعبين."
+)){
 
-        return;
+return;
 
-    }
+}
 
-    fetch(
-        "/api/economy/disable",
-        {
+fetch(
+"/api/economy/disable",
+{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+guild_id:"{{ guild_id }}"
+})
+}
+)
+.then(r=>r.json())
+.then(data=>{
 
-            method:"POST",
+if(data.success){
 
-            headers:{
-                "Content-Type":
-                "application/json"
-            },
+alert(
+"🔴 تم تعطيل نظام الاقتصاد."
+);
 
-            body:JSON.stringify({
+location.reload();
 
-                guild_id:
-                "{{ guild_id }}"
+}else{
 
-            })
+alert(
+"❌ "+
+(data.error || "حدث خطأ.")
+);
 
-        }
-    )
-    .then(
-        r => r.json()
-    )
-    .then(
-        data => {
+}
 
-            if (data.success) {
+})
+.catch(()=>{
 
-                alert(
-                    "🔴 تم تعطيل نظام الاقتصاد."
-                );
+alert(
+"❌ تعذر الاتصال بالموقع."
+);
 
-                location.reload();
-
-            } else {
-
-                alert(
-                    "❌ " +
-                    (
-                        data.error ||
-                        "حدث خطأ."
-                    )
-                );
-
-            }
-
-        }
-    )
-    .catch(
-        () => {
-
-            alert(
-                "❌ تعذر الاتصال بالموقع."
-            );
-
-        }
-    );
+});
 
 }
 
 </script>
 
 </body>
-
 </html>
 """
 
 
-# =========================================================
-# صفحة السيرفر
-# =========================================================
-
 @app.route("/server/<guild_id>")
-def server_page(
-    guild_id
-):
+def server_page(guild_id):
 
     guild_id = str(
         guild_id
     ).strip()
 
     if not guild_id:
-
         return redirect(
             url_for("dashboard")
         )
 
-    if not user_can_control(
-        guild_id
-    ):
-
+    if not user_can_control(guild_id):
         return redirect(
             url_for("dashboard")
         )
@@ -2432,7 +1913,6 @@ def server_page(
     )
 
     if not discord_guild:
-
         return (
             "البوت غير موجود في هذا السيرفر أو لا يستطيع الوصول إليه.",
             404
@@ -2446,16 +1926,9 @@ def server_page(
         guild_id
     )
 
-    # =====================================================
-    # قراءة اقتصاد هذا السيرفر فقط
-    # =====================================================
-
     economy = (
         economy_settings_collection.find_one({
-
-            "guild_id":
-            guild_id
-
+            "guild_id": guild_id
         })
         or {}
     )
@@ -2484,99 +1957,65 @@ def server_page(
                 channel.get("id")
             ) == economy_room_id:
 
-                economy_room_name = (
-                    channel.get(
-                        "name",
-                        "الروم"
-                    )
+                economy_room_name = channel.get(
+                    "name",
+                    "الروم"
                 )
 
                 break
 
         if economy_room_name == "غير محدد":
-
             economy_room_name = economy_room_id
 
-    # =====================================================
-    # تحديث بيانات السيرفر
-    # هذا لا يلمس economy_settings
-    # =====================================================
-
     guilds_collection.update_one(
-
         {
-            "guild_id":
-            guild_id
+            "guild_id": guild_id
         },
-
         {
             "$set": {
-
-                "guild_id":
-                guild_id,
-
-                "guild_name":
-                discord_guild.get(
+                "guild_id": guild_id,
+                "guild_name": discord_guild.get(
                     "name",
                     "السيرفر"
                 ),
-
-                "channels":
-                discord_channels,
-
-                "roles":
-                discord_roles,
-
-                "updated_at":
-                datetime.utcnow()
-
+                "channels": discord_channels,
+                "roles": discord_roles,
+                "updated_at": datetime.utcnow()
             }
         },
-
         upsert=True
-
     )
 
     return render_template_string(
-
         SERVER_HTML,
 
-        guild_id=
-        guild_id,
+        guild_id=guild_id,
 
-        guild_name=
-        discord_guild.get(
+        guild_name=discord_guild.get(
             "name",
             "السيرفر"
         ),
 
-        command_count=
-        commands_collection.count_documents({}),
+        command_count=commands_collection.count_documents({}),
 
-        channel_count=
-        len(
+        channel_count=len(
             discord_channels
         ),
 
-        role_count=
-        len(
+        role_count=len(
             discord_roles
         ),
 
-        economy_enabled=
-        economy_enabled,
+        economy_enabled=economy_enabled,
 
-        economy_room_id=
-        economy_room_id,
+        economy_room_id=economy_room_id,
 
-        economy_room_name=
-        economy_room_name
-
+        economy_room_name=economy_room_name
     )
 
 
 # =========================================================
-# تفعيل / تغيير روم الاقتصاد
+# اقتصاد - تفعيل / تغيير
 # =========================================================
 
 @app.route(
@@ -2603,88 +2042,49 @@ def enable_economy():
         )
     ).strip()
 
-    # =====================================================
-    # التحقق من البيانات
-    # =====================================================
-
     if not guild_id:
-
         return {
             "success": False,
-            "error":
-            "guild_id مفقود."
+            "error": "guild_id مفقود."
         }, 400
 
     if not economy_room_id:
-
         return {
             "success": False,
-            "error":
-            "ID روم الاقتصاد مفقود."
+            "error": "ID روم الاقتصاد مفقود."
         }, 400
 
     if not economy_room_id.isdigit():
-
         return {
             "success": False,
-            "error":
-            "ID روم الاقتصاد غير صحيح."
+            "error": "ID روم الاقتصاد غير صحيح."
         }, 400
 
-    # =====================================================
-    # التحقق من صلاحية المستخدم
-    # =====================================================
-
-    if not user_can_control(
-        guild_id
-    ):
-
+    if not user_can_control(guild_id):
         return {
             "success": False,
-            "error":
-            "غير مصرح لك."
+            "error": "غير مصرح لك."
         }, 403
-
-    # =====================================================
-    # التأكد أن البوت موجود في السيرفر
-    # =====================================================
 
     bot_guild = get_bot_guild(
         guild_id
     )
 
     if not bot_guild:
-
         return {
             "success": False,
-            "error":
-            "البوت غير موجود في هذا السيرفر."
+            "error": "البوت غير موجود في هذا السيرفر."
         }, 404
-
-    # =====================================================
-    # جلب رومات السيرفر مباشرة من Discord
-    # =====================================================
 
     channels = get_bot_channels(
         guild_id
     )
 
     if not channels:
-
         return {
             "success": False,
-            "error":
-            "تعذر جلب رومات السيرفر من Discord."
+            "error": "تعذر جلب رومات السيرفر من Discord."
         }, 400
-
-    # =====================================================
-    # البحث عن الروم المطلوب
-    #
-    # 0 = Text
-    # 5 = News / Announcement
-    #
-    # Forum = 15 ممنوع للاقتصاد
-    # =====================================================
 
     selected_channel = None
 
@@ -2693,18 +2093,11 @@ def enable_economy():
         if str(
             channel.get("id")
         ) != economy_room_id:
-
             continue
 
-        channel_type = channel.get(
-            "type"
-        )
+        channel_type = channel.get("type")
 
-        if channel_type not in (
-            0,
-            5
-        ):
-
+        if channel_type not in (0, 5):
             return {
                 "success": False,
                 "error":
@@ -2712,24 +2105,14 @@ def enable_economy():
             }, 400
 
         selected_channel = channel
-
         break
 
-    # =====================================================
-    # الروم غير موجود
-    # =====================================================
-
     if selected_channel is None:
-
         return {
             "success": False,
             "error":
             "روم الاقتصاد غير موجود في هذا السيرفر."
         }, 400
-
-    # =====================================================
-    # الاسم
-    # =====================================================
 
     economy_room_name = str(
         selected_channel.get(
@@ -2738,118 +2121,47 @@ def enable_economy():
         )
     )
 
-    # =====================================================
-    # الحفظ
-    #
-    # مهم جداً:
-    # guild_id هو مفتاح السيرفر.
-    #
-    # بالتالي:
-    #
-    # سيرفر A
-    # guild_id = A
-    # economy_room_id = room A
-    #
-    # سيرفر B
-    # guild_id = B
-    # economy_room_id = room B
-    #
-    # ولا يوجد أي ID سيرفر ثابت هنا.
-    # =====================================================
-
     economy_settings_collection.update_one(
-
         {
-            "guild_id":
-            guild_id
+            "guild_id": guild_id
         },
-
         {
             "$set": {
-
-                "guild_id":
-                guild_id,
-
-                "currency_enabled":
-                True,
-
-                "economy_room_id":
-                economy_room_id
-
+                "guild_id": guild_id,
+                "currency_enabled": True,
+                "economy_room_id": economy_room_id
             }
         },
-
         upsert=True
-
     )
 
-    # =====================================================
-    # قراءة البيانات بعد الحفظ
-    # للتأكد أن Mongo حفظها فعلاً
-    # =====================================================
-
     saved = economy_settings_collection.find_one({
-
-        "guild_id":
-        guild_id
-
+        "guild_id": guild_id
     })
 
     if not saved:
-
         return {
             "success": False,
             "error":
-            "تعذر حفظ إعدادات الاقتصاد في قاعدة البيانات."
-        }, 500
-
-    saved_room_id = str(
-        saved.get(
-            "economy_room_id",
-            ""
-        )
-    ).strip()
-
-    saved_enabled = (
-        saved.get(
-            "currency_enabled",
-            False
-        ) is True
-    )
-
-    if (
-        saved_room_id != economy_room_id
-        or not saved_enabled
-    ):
-
-        return {
-            "success": False,
-            "error":
-            "تم إرسال الحفظ لكن لم يتم التحقق من البيانات المحفوظة."
+            "تعذر حفظ إعدادات الاقتصاد."
         }, 500
 
     return {
-
-        "success":
-        True,
-
-        "guild_id":
-        guild_id,
-
-        "economy_room_id":
-        saved_room_id,
-
-        "economy_room_name":
-        economy_room_name,
-
-        "currency_enabled":
-        True
-
+        "success": True,
+        "guild_id": guild_id,
+        "economy_room_id": str(
+            saved.get(
+                "economy_room_id",
+                ""
+            )
+        ),
+        "economy_room_name": economy_room_name,
+        "currency_enabled": True
     }
 
 
 # =========================================================
-# تعطيل نظام الاقتصاد
+# اقتصاد - تعطيل
 # =========================================================
 
 @app.route(
@@ -2870,48 +2182,28 @@ def disable_economy():
     ).strip()
 
     if not guild_id:
-
         return {
             "success": False,
-            "error":
-            "guild_id مفقود."
+            "error": "guild_id مفقود."
         }, 400
 
-    if not user_can_control(
-        guild_id
-    ):
-
+    if not user_can_control(guild_id):
         return {
             "success": False,
-            "error":
-            "غير مصرح لك."
+            "error": "غير مصرح لك."
         }, 403
 
-    # =====================================================
-    # تعطيل اقتصاد هذا السيرفر فقط
-    # =====================================================
-
     economy_settings_collection.update_one(
-
         {
-            "guild_id":
-            guild_id
+            "guild_id": guild_id
         },
-
         {
             "$set": {
-
-                "guild_id":
-                guild_id,
-
-                "currency_enabled":
-                False
-
+                "guild_id": guild_id,
+                "currency_enabled": False
             }
         },
-
         upsert=True
-
     )
 
     return {
@@ -2926,7 +2218,6 @@ def disable_economy():
 
 COMMANDS_HTML = """
 <!DOCTYPE html>
-
 <html lang="ar" dir="rtl">
 
 <head>
@@ -2942,395 +2233,217 @@ content="width=device-width,initial-scale=1">
 
 <style>
 
-body {
-
-    margin:0;
-
-    background:#090914;
-
-    color:white;
-
-    font-family:Arial,sans-serif;
-
+body{
+margin:0;
+background:#090914;
+color:white;
+font-family:Arial,sans-serif
 }
 
-.container {
-
-    width:min(900px,92%);
-
-    margin:auto;
-
+.container{
+width:min(900px,92%);
+margin:auto
 }
 
-nav {
-
-    height:75px;
-
-    display:flex;
-
-    justify-content:space-between;
-
-    align-items:center;
-
+nav{
+height:75px;
+display:flex;
+justify-content:space-between;
+align-items:center
 }
 
-.card {
-
-    background:#ffffff08;
-
-    border:
-        1px solid
-        #ffffff12;
-
-    border-radius:18px;
-
-    padding:18px;
-
-    margin-bottom:12px;
-
+.card{
+background:#ffffff08;
+border:1px solid #ffffff12;
+border-radius:18px;
+padding:18px;
+margin-bottom:12px
 }
 
-.command {
-
-    display:flex;
-
-    justify-content:space-between;
-
-    align-items:center;
-
-    gap:15px;
-
+.command{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:15px
 }
 
-.name {
-
-    font-weight:bold;
-
-    font-size:18px;
-
+.name{
+font-weight:bold;
+font-size:18px
 }
 
-.desc {
-
-    color:#9491a1;
-
-    margin-top:7px;
-
-    font-size:14px;
-
+.desc{
+color:#9491a1;
+margin-top:7px;
+font-size:14px
 }
 
-.btn {
-
-    border:0;
-
-    border-radius:12px;
-
-    padding:11px 17px;
-
-    background:
-        linear-gradient(
-            135deg,
-            #7136ff,
-            #ad65ff
-        );
-
-    color:white;
-
-    font-weight:bold;
-
-    cursor:pointer;
-
-    text-decoration:none;
-
+.btn{
+border:0;
+border-radius:12px;
+padding:11px 17px;
+background:linear-gradient(135deg,#7136ff,#ad65ff);
+color:white;
+font-weight:bold;
+cursor:pointer;
+text-decoration:none
 }
 
-.modal-bg {
-
-    display:none;
-
-    position:fixed;
-
-    inset:0;
-
-    background:#000b;
-
-    align-items:center;
-
-    justify-content:center;
-
-    padding:15px;
-
+.modal-bg{
+display:none;
+position:fixed;
+inset:0;
+background:#000b;
+align-items:center;
+justify-content:center;
+padding:15px
 }
 
-.modal {
-
-    width:min(600px,100%);
-
-    max-height:90vh;
-
-    overflow:auto;
-
-    background:#11111e;
-
-    border:
-        1px solid
-        #ffffff15;
-
-    border-radius:22px;
-
-    padding:23px;
-
-    box-shadow:
-        0 20px 80px #000;
-
+.modal{
+width:min(600px,100%);
+max-height:90vh;
+overflow:auto;
+background:#11111e;
+border:1px solid #ffffff15;
+border-radius:22px;
+padding:23px
 }
 
-.close {
-
-    float:left;
-
-    cursor:pointer;
-
-    font-size:22px;
-
+.close{
+float:left;
+cursor:pointer;
+font-size:22px
 }
 
-.picker {
-
-    position:relative;
-
-    margin-top:10px;
-
+.picker{
+position:relative;
+margin-top:10px
 }
 
-.picker-btn {
-
-    width:100%;
-
-    text-align:right;
-
-    background:#ffffff0b;
-
-    border:
-        1px solid
-        #ffffff14;
-
-    color:white;
-
-    padding:14px;
-
-    border-radius:13px;
-
-    cursor:pointer;
-
+.picker-btn{
+width:100%;
+text-align:right;
+background:#ffffff0b;
+border:1px solid #ffffff14;
+color:white;
+padding:14px;
+border-radius:13px;
+cursor:pointer
 }
 
-.menu {
-
-    display:none;
-
-    margin-top:7px;
-
-    background:#181827;
-
-    border:
-        1px solid
-        #ffffff12;
-
-    border-radius:14px;
-
-    padding:8px;
-
-    max-height:220px;
-
-    overflow:auto;
-
+.menu{
+display:none;
+margin-top:7px;
+background:#181827;
+border:1px solid #ffffff12;
+border-radius:14px;
+padding:8px;
+max-height:220px;
+overflow:auto
 }
 
-.item {
-
-    display:block;
-
-    padding:9px;
-
-    border-radius:9px;
-
+.item{
+display:block;
+padding:9px;
+border-radius:9px
 }
 
-.item:hover {
-
-    background:#ffffff09;
-
+.item:hover{
+background:#ffffff09
 }
 
-.item input {
-
-    margin-left:8px;
-
+.item input{
+margin-left:8px
 }
 
-.save {
-
-    width:100%;
-
-    margin-top:20px;
-
+.save{
+width:100%;
+margin-top:20px
 }
 
-.info {
-
-    color:#9b98aa;
-
-    font-size:13px;
-
-    line-height:1.7;
-
+.info{
+color:#9b98aa;
+font-size:13px;
+line-height:1.7
 }
 
-.empty-picker {
-
-    color:#aaa7b8;
-
-    text-align:center;
-
-    padding:15px;
-
+.toggle-box{
+background:#ffffff08;
+border:1px solid #ffffff12;
+border-radius:14px;
+padding:14px;
+margin-bottom:15px
 }
 
-.toggle-box {
-
-    background:#ffffff08;
-
-    border:
-        1px solid
-        #ffffff12;
-
-    border-radius:14px;
-
-    padding:14px;
-
-    margin-bottom:15px;
-
+.toggle-row{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:15px
 }
 
-.toggle-row {
-
-    display:flex;
-
-    align-items:center;
-
-    justify-content:space-between;
-
-    gap:15px;
-
+.switch{
+position:relative;
+width:52px;
+height:28px
 }
 
-.switch {
-
-    position:relative;
-
-    width:52px;
-
-    height:28px;
-
+.switch input{
+display:none
 }
 
-.switch input {
-
-    display:none;
-
+.slider{
+position:absolute;
+inset:0;
+cursor:pointer;
+background:#383847;
+border-radius:30px
 }
 
-.slider {
-
-    position:absolute;
-
-    inset:0;
-
-    cursor:pointer;
-
-    background:#383847;
-
-    border-radius:30px;
-
-    transition:.2s;
-
+.slider:before{
+content:"";
+position:absolute;
+width:22px;
+height:22px;
+left:3px;
+top:3px;
+background:white;
+border-radius:50%;
+transition:.2s
 }
 
-.slider:before {
-
-    content:"";
-
-    position:absolute;
-
-    width:22px;
-
-    height:22px;
-
-    left:3px;
-
-    top:3px;
-
-    background:white;
-
-    border-radius:50%;
-
-    transition:.2s;
-
+.switch input:checked + .slider{
+background:#7136ff
 }
 
-.switch input:checked + .slider {
-
-    background:#7136ff;
-
+.switch input:checked + .slider:before{
+transform:translateX(24px)
 }
 
-.switch input:checked + .slider:before {
-
-    transform:
-        translateX(24px);
-
+.admin-badge{
+display:inline-block;
+margin-right:8px;
+padding:4px 8px;
+border-radius:8px;
+background:#7136ff22;
+color:#c7aaff;
+font-size:11px
 }
 
-.admin-badge {
+@media(max-width:600px){
 
-    display:inline-block;
-
-    margin-right:8px;
-
-    padding:4px 8px;
-
-    border-radius:8px;
-
-    background:#7136ff22;
-
-    color:#c7aaff;
-
-    font-size:11px;
-
+.command{
+flex-direction:column;
+align-items:stretch
 }
 
-@media(max-width:600px) {
-
-    .command {
-
-        flex-direction:column;
-
-        align-items:stretch;
-
-    }
-
-    .command .btn {
-
-        width:100%;
-
-    }
+.command .btn{
+width:100%
+}
 
 }
 
 </style>
-
 </head>
 
 <body>
@@ -3339,12 +2452,9 @@ nav {
 
 <nav>
 
-<a
-class="btn"
+<a class="btn"
 href="/server/{{ guild_id }}">
-
 ← رجوع
-
 </a>
 
 <h2>
@@ -3352,7 +2462,6 @@ href="/server/{{ guild_id }}">
 </h2>
 
 </nav>
-
 
 {% if commands %}
 
@@ -3377,20 +2486,15 @@ href="/server/{{ guild_id }}">
 </div>
 
 <div class="desc">
-
 {{ command.description }}
-
 </div>
 
 </div>
-
 
 <button
 class="btn"
 onclick='openSettings({{ command.name|tojson }})'>
-
 ⚙️ إعداد
-
 </button>
 
 </div>
@@ -3400,9 +2504,7 @@ onclick='openSettings({{ command.name|tojson }})'>
 {% else %}
 
 <div class="card">
-
 لا توجد أوامر محفوظة حالياً.
-
 </div>
 
 {% endif %}
@@ -3410,25 +2512,18 @@ onclick='openSettings({{ command.name|tojson }})'>
 </div>
 
 
-<div
-class="modal-bg"
-id="modalBg">
+<div class="modal-bg" id="modalBg">
 
 <div class="modal">
 
-<span
-class="close"
+<span class="close"
 onclick="closeModal()">
-
 ×
-
 </span>
-
 
 <h2 id="modalTitle">
 إعداد الأمر
 </h2>
-
 
 <div class="toggle-box">
 
@@ -3441,20 +2536,16 @@ onclick="closeModal()">
 </b>
 
 <div class="info">
-
 يمكنك تعطيل الأمر بالكامل من هنا.
-
 </div>
 
 </div>
-
 
 <label class="switch">
 
 <input
 type="checkbox"
-id="enabledCheck"
->
+id="enabledCheck">
 
 <span class="slider"></span>
 
@@ -3464,7 +2555,6 @@ id="enabledCheck"
 
 </div>
 
-
 <p class="info">
 
 إذا لم تختر أي روم أو رتبة،
@@ -3473,11 +2563,9 @@ id="enabledCheck"
 
 </p>
 
-
 <h3>
 📁 الرومات المسموحة
 </h3>
-
 
 <div class="picker">
 
@@ -3486,11 +2574,8 @@ type="button"
 class="picker-btn"
 onclick="togglePicker('channelsMenu')"
 id="channelButton">
-
 اختيار الرومات
-
 </button>
-
 
 <div
 class="menu"
@@ -3505,8 +2590,7 @@ id="channelsMenu">
 <input
 type="checkbox"
 class="channel-check"
-value="{{ channel.id }}"
->
+value="{{ channel.id }}">
 
 #{{ channel.name }}
 
@@ -3516,10 +2600,8 @@ value="{{ channel.id }}"
 
 {% else %}
 
-<div class="empty-picker">
-
+<div>
 ❌ لم يتم العثور على رومات كتابية.
-
 </div>
 
 {% endif %}
@@ -3528,11 +2610,9 @@ value="{{ channel.id }}"
 
 </div>
 
-
 <h3>
 🎭 الرتب المسموحة
 </h3>
-
 
 <div class="picker">
 
@@ -3541,11 +2621,8 @@ type="button"
 class="picker-btn"
 onclick="togglePicker('rolesMenu')"
 id="roleButton">
-
 اختيار الرتب
-
 </button>
-
 
 <div
 class="menu"
@@ -3560,8 +2637,7 @@ id="rolesMenu">
 <input
 type="checkbox"
 class="role-check"
-value="{{ role.id }}"
->
+value="{{ role.id }}">
 
 {{ role.name }}
 
@@ -3571,10 +2647,8 @@ value="{{ role.id }}"
 
 {% else %}
 
-<div class="empty-picker">
-
+<div>
 ❌ لا توجد رتب.
-
 </div>
 
 {% endif %}
@@ -3583,391 +2657,304 @@ value="{{ role.id }}"
 
 </div>
 
-
 <button
 type="button"
 class="btn save"
 onclick="saveSettings()">
-
 💾 حفظ الإعدادات
-
 </button>
 
 </div>
-
 </div>
 
 
 <script>
 
-let selectedCommand = "";
+let selectedCommand="";
 
 
-function openSettings(
-    command
-) {
+function openSettings(command){
 
-    selectedCommand =
-        command;
+selectedCommand=command;
 
-    document.getElementById(
-        "modalTitle"
-    ).innerText =
-        "⚙️ إعداد: " +
-        command;
+document.getElementById(
+"modalTitle"
+).innerText=
+"⚙️ إعداد: "+command;
 
+document.getElementById(
+"modalBg"
+).style.display="flex";
 
-    document.getElementById(
-        "modalBg"
-    ).style.display =
-        "flex";
+document.querySelectorAll(
+".channel-check"
+).forEach(
+x=>x.checked=false
+);
 
+document.querySelectorAll(
+".role-check"
+).forEach(
+x=>x.checked=false
+);
 
-    document.querySelectorAll(
-        ".channel-check"
-    ).forEach(
-        x =>
-        x.checked = false
-    );
+document.getElementById(
+"enabledCheck"
+).checked=false;
 
+updateButtonText();
 
-    document.querySelectorAll(
-        ".role-check"
-    ).forEach(
-        x =>
-        x.checked = false
-    );
+fetch(
+"/api/command-settings?guild={{ guild_id }}&command="
++
+encodeURIComponent(command)
+)
+.then(
+r=>r.json()
+)
+.then(
+data=>{
 
+if(!data.success){
 
-    document.getElementById(
-        "enabledCheck"
-    ).checked = false;
+alert(
+"❌ "+
+(data.error||"حدث خطأ.")
+);
 
+return;
 
-    updateButtonText();
+}
 
+(data.channel_ids||[]).forEach(
+id=>{
 
-    fetch(
-        "/api/command-settings?guild={{ guild_id }}&command="
-        +
-        encodeURIComponent(
-            command
-        )
-    )
-    .then(
-        r => r.json()
-    )
-    .then(
-        data => {
+id=String(id);
 
-            if (!data.success) {
+const box=
+document.querySelector(
+'.channel-check[value="'+id+'"]'
+);
 
-                if (data.error) {
+if(box){
+box.checked=true;
+}
 
-                    alert(
-                        "❌ " +
-                        data.error
-                    );
+}
+);
 
-                }
+(data.role_ids||[]).forEach(
+id=>{
 
-                return;
-            }
+id=String(id);
 
+const box=
+document.querySelector(
+'.role-check[value="'+id+'"]'
+);
 
-            (
-                data.channel_ids
-                || []
-            ).forEach(
-                id => {
+if(box){
+box.checked=true;
+}
 
-                    id =
-                        String(id);
+}
+);
 
-                    const box =
-                        document.querySelector(
-                            '.channel-check[value="' +
-                            id +
-                            '"]'
-                        );
+document.getElementById(
+"enabledCheck"
+).checked=
+data.enabled===true;
 
-                    if (box) {
+updateButtonText();
 
-                        box.checked =
-                            true;
-
-                    }
-
-                }
-            );
-
-
-            (
-                data.role_ids
-                || []
-            ).forEach(
-                id => {
-
-                    id =
-                        String(id);
-
-                    const box =
-                        document.querySelector(
-                            '.role-check[value="' +
-                            id +
-                            '"]'
-                        );
-
-                    if (box) {
-
-                        box.checked =
-                            true;
-
-                    }
-
-                }
-            );
-
-
-            document.getElementById(
-                "enabledCheck"
-            ).checked =
-                data.enabled === true;
-
-
-            updateButtonText();
-
-        }
-    )
-    .catch(
-        () => {
-
-            alert(
-                "❌ تعذر جلب إعدادات الأمر."
-            );
-
-        }
-    );
+}
+)
+.catch(
+()=>alert(
+"❌ تعذر جلب إعدادات الأمر."
+)
+);
 
 }
 
 
-function closeModal() {
+function closeModal(){
 
-    document.getElementById(
-        "modalBg"
-    ).style.display =
-        "none";
+document.getElementById(
+"modalBg"
+).style.display="none";
 
+document.getElementById(
+"channelsMenu"
+).style.display="none";
 
-    document.getElementById(
-        "channelsMenu"
-    ).style.display =
-        "none";
-
-
-    document.getElementById(
-        "rolesMenu"
-    ).style.display =
-        "none";
+document.getElementById(
+"rolesMenu"
+).style.display="none";
 
 }
 
 
-function togglePicker(
-    id
-) {
+function togglePicker(id){
 
-    const menu =
-        document.getElementById(
-            id
-        );
+const menu=
+document.getElementById(id);
 
-    menu.style.display =
-        menu.style.display === "block"
-        ? "none"
-        : "block";
+menu.style.display=
+menu.style.display==="block"
+?"none"
+:"block";
 
 }
 
 
-function updateButtonText() {
+function updateButtonText(){
 
-    const channels =
-        document.querySelectorAll(
-            ".channel-check:checked"
-        ).length;
+const channels=
+document.querySelectorAll(
+".channel-check:checked"
+).length;
 
+const roles=
+document.querySelectorAll(
+".role-check:checked"
+).length;
 
-    const roles =
-        document.querySelectorAll(
-            ".role-check:checked"
-        ).length;
+document.getElementById(
+"channelButton"
+).innerText=
+channels
+?
+"📁 تم اختيار "+channels+" روم"
+:
+"📁 اختيار الرومات";
 
-
-    document.getElementById(
-        "channelButton"
-    ).innerText =
-        channels
-        ? "📁 تم اختيار " +
-          channels +
-          " روم"
-        : "📁 اختيار الرومات";
-
-
-    document.getElementById(
-        "roleButton"
-    ).innerText =
-        roles
-        ? "🎭 تم اختيار " +
-          roles +
-          " رتبة"
-        : "🎭 اختيار الرتب";
+document.getElementById(
+"roleButton"
+).innerText=
+roles
+?
+"🎭 تم اختيار "+roles+" رتبة"
+:
+"🎭 اختيار الرتب";
 
 }
 
 
 document.addEventListener(
-    "change",
-    function(e) {
+"change",
+function(e){
 
-        if (
+if(
+e.target.classList.contains(
+"channel-check"
+)
+||
+e.target.classList.contains(
+"role-check"
+)
+){
 
-            e.target.classList.contains(
-                "channel-check"
-            )
+updateButtonText();
 
-            ||
+}
 
-            e.target.classList.contains(
-                "role-check"
-            )
-
-        ) {
-
-            updateButtonText();
-
-        }
-
-    }
+}
 );
 
 
-function saveSettings() {
+function saveSettings(){
 
-    const channels = Array.from(
-        document.querySelectorAll(
-            ".channel-check:checked"
-        )
-    ).map(
-        x =>
-        String(x.value)
-    );
+const channels=
+Array.from(
+document.querySelectorAll(
+".channel-check:checked"
+)
+).map(
+x=>String(x.value)
+);
 
+const roles=
+Array.from(
+document.querySelectorAll(
+".role-check:checked"
+)
+).map(
+x=>String(x.value)
+);
 
-    const roles = Array.from(
-        document.querySelectorAll(
-            ".role-check:checked"
-        )
-    ).map(
-        x =>
-        String(x.value)
-    );
+const enabled=
+document.getElementById(
+"enabledCheck"
+).checked;
 
+fetch(
+"/save-command",
+{
+method:"POST",
+headers:{
+"Content-Type":
+"application/json"
+},
+body:JSON.stringify({
 
-    const enabled =
-        document.getElementById(
-            "enabledCheck"
-        ).checked;
+guild_id:
+"{{ guild_id }}",
 
+command_name:
+selectedCommand,
 
-    fetch(
-        "/save-command",
-        {
+channel_ids:
+channels,
 
-            method:"POST",
+role_ids:
+roles,
 
-            headers:{
+enabled:
+enabled
 
-                "Content-Type":
-                "application/json"
+})
+}
+)
+.then(
+r=>r.json()
+)
+.then(
+data=>{
 
-            },
+if(data.success){
 
-            body:JSON.stringify({
+alert(
+"✅ تم حفظ إعدادات الأمر"
+);
 
-                guild_id:
-                "{{ guild_id }}",
+closeModal();
 
-                command_name:
-                selectedCommand,
+}else{
 
-                channel_ids:
-                channels,
+alert(
+"❌ "+
+(data.error||"حدث خطأ")
+);
 
-                role_ids:
-                roles,
+}
 
-                enabled:
-                enabled
-
-            })
-
-        }
-    )
-    .then(
-        r => r.json()
-    )
-    .then(
-        data => {
-
-            if (data.success) {
-
-                alert(
-                    "✅ تم حفظ إعدادات الأمر"
-                );
-
-                closeModal();
-
-            } else {
-
-                alert(
-                    "❌ " +
-                    (
-                        data.error ||
-                        "حدث خطأ"
-                    )
-                );
-
-            }
-
-        }
-    )
-    .catch(
-        () => {
-
-            alert(
-                "❌ تعذر الاتصال بالموقع."
-            );
-
-        }
-    );
+}
+)
+.catch(
+()=>alert(
+"❌ تعذر الاتصال بالموقع."
+)
+);
 
 }
 
 </script>
 
 </body>
-
 </html>
 """
 
-
-# =========================================================
-# Route صفحة الأوامر
-#
-# هذا كان ناقصاً في الملف السابق
-# =========================================================
 
 @app.route("/commands")
 def commands_page():
@@ -3980,22 +2967,14 @@ def commands_page():
     ).strip()
 
     if not guild_id:
-
         return redirect(
             url_for("dashboard")
         )
 
-    if not user_can_control(
-        guild_id
-    ):
-
+    if not user_can_control(guild_id):
         return redirect(
             url_for("dashboard")
         )
-
-    # =====================================================
-    # جلب الرومات والرتب من Discord
-    # =====================================================
 
     discord_channels = get_bot_channels(
         guild_id
@@ -4013,10 +2992,7 @@ def commands_page():
 
     for role in discord_roles:
 
-        if not isinstance(
-            role,
-            dict
-        ):
+        if not isinstance(role, dict):
             continue
 
         role_id = str(
@@ -4026,44 +3002,28 @@ def commands_page():
             )
         )
 
-        role_name = str(
-            role.get(
-                "name",
-                "رتبة"
-            )
-        )
-
         if not role_id:
             continue
 
         roles.append({
-
-            "id":
-            role_id,
-
-            "name":
-            role_name,
-
-            "position":
-            role.get(
+            "id": role_id,
+            "name": str(
+                role.get(
+                    "name",
+                    "رتبة"
+                )
+            ),
+            "position": role.get(
                 "position",
                 0
             )
-
         })
 
     roles.sort(
         key=lambda x:
-        x.get(
-            "position",
-            0
-        ),
+        x.get("position", 0),
         reverse=True
     )
-
-    # =====================================================
-    # جلب الأوامر من Mongo
-    # =====================================================
 
     raw_commands = list(
         commands_collection.find({})
@@ -4071,12 +3031,11 @@ def commands_page():
 
     commands = []
 
+    seen = set()
+
     for command in raw_commands:
 
-        if not isinstance(
-            command,
-            dict
-        ):
+        if not isinstance(command, dict):
             continue
 
         command_name = str(
@@ -4092,82 +3051,49 @@ def commands_page():
         if not command_name:
             continue
 
-        description = str(
-            command.get(
-                "description",
-                "لا يوجد وصف لهذا الأمر."
-            )
-        )
+        if command_name in seen:
+            continue
+
+        seen.add(command_name)
 
         commands.append({
-
-            "name":
-            command_name,
-
-            "description":
-            description,
-
+            "name": command_name,
+            "description": str(
+                command.get(
+                    "description",
+                    "لا يوجد وصف لهذا الأمر."
+                )
+            ),
             "is_admin_display":
-            is_admin_command(
-                command
-            )
-
+            is_admin_command(command)
         })
-
-    # =====================================================
-    # إذا كان هناك أوامر ثابتة في قاعدة البيانات
-    # يتم ترتيبها أبجدياً
-    # =====================================================
 
     commands.sort(
         key=lambda x:
-        x.get(
-            "name",
-            ""
-        )
+        x.get("name", "")
     )
 
     return render_template_string(
-
         COMMANDS_HTML,
-
-        guild_id=
-        guild_id,
-
-        commands=
-        commands,
-
-        channels=
-        channels,
-
-        roles=
-        roles
-
+        guild_id=guild_id,
+        commands=commands,
+        channels=channels,
+        roles=roles
     )
 
 
 # =========================================================
-# جلب إعداد أمر
+# جلب إعداد الأمر
 # =========================================================
 
-@app.route(
-    "/api/command-settings"
-)
+@app.route("/api/command-settings")
 def command_settings():
 
-    guild_id = request.args.get(
-        "guild"
-    )
+    guild_id = request.args.get("guild")
 
-    command_name = request.args.get(
-        "command"
-    )
+    command_name = request.args.get("command")
 
-    if (
-        not guild_id
-        or not command_name
-    ):
-
+    if not guild_id or not command_name:
         return {
             "success": False
         }
@@ -4180,23 +3106,16 @@ def command_settings():
         command_name
     ).strip()
 
-    if not user_can_control(
-        guild_id
-    ):
-
+    if not user_can_control(guild_id):
         return {
             "success": False,
-            "error":
-            "غير مصرح"
+            "error": "غير مصرح"
         }, 403
 
     if (
-        command_name_is_admin(
-            command_name
-        )
+        command_name_is_admin(command_name)
         and not is_bot_owner()
     ):
-
         return {
             "success": False,
             "error":
@@ -4204,66 +3123,48 @@ def command_settings():
         }, 403
 
     setting = settings_collection.find_one({
-
-        "guild_id":
-        guild_id,
-
-        "command_name":
-        command_name
-
+        "guild_id": guild_id,
+        "command_name": command_name
     })
 
     if not setting:
 
+        # مهم:
+        # عدم وجود إعداد يعني أن الأمر غير مقيد
+        # من الموقع، حسب نظام البوت الجديد.
         return {
-
             "success": True,
-
             "channel_ids": [],
-
             "role_ids": [],
-
-            "enabled": False
-
+            "enabled": True
         }
 
     return {
-
         "success": True,
-
         "channel_ids": [
-
             str(x)
-
             for x in setting.get(
                 "channel_ids",
                 []
             )
-
         ],
-
         "role_ids": [
-
             str(x)
-
             for x in setting.get(
                 "role_ids",
                 []
             )
-
         ],
-
         "enabled":
         setting.get(
             "enabled",
-            False
+            True
         )
-
     }
 
 
 # =========================================================
-# حفظ إعدادات الأمر
+# حفظ إعداد الأمر
 # =========================================================
 
 @app.route(
@@ -4291,116 +3192,65 @@ def save_command():
     ).strip()
 
     channel_ids = [
-
         str(x)
-
         for x in data.get(
             "channel_ids",
             []
         )
-
         if str(x).strip()
-
     ]
 
     role_ids = [
-
         str(x)
-
         for x in data.get(
             "role_ids",
             []
         )
-
         if str(x).strip()
-
     ]
 
-    if (
-        not guild_id
-        or not command_name
-    ):
-
+    if not guild_id or not command_name:
         return {
-
             "success": False,
-
-            "error":
-            "بيانات ناقصة"
-
+            "error": "بيانات ناقصة"
         }, 400
 
-    if not user_can_control(
-        guild_id
-    ):
-
+    if not user_can_control(guild_id):
         return {
-
             "success": False,
-
-            "error":
-            "غير مصرح لك"
-
+            "error": "غير مصرح لك"
         }, 403
 
     if (
-        command_name_is_admin(
-            command_name
-        )
+        command_name_is_admin(command_name)
         and not is_bot_owner()
     ):
-
         return {
-
             "success": False,
-
             "error":
             "هذا الأمر متاح لصاحب البوت فقط."
-
         }, 403
 
     settings_collection.update_one(
-
         {
-
-            "guild_id":
-            guild_id,
-
-            "command_name":
-            command_name
-
+            "guild_id": guild_id,
+            "command_name": command_name
         },
-
         {
-
             "$set": {
-
-                "guild_id":
-                guild_id,
-
-                "command_name":
-                command_name,
-
-                "channel_ids":
-                channel_ids,
-
-                "role_ids":
-                role_ids,
-
-                "enabled":
-                bool(
+                "guild_id": guild_id,
+                "command_name": command_name,
+                "channel_ids": channel_ids,
+                "role_ids": role_ids,
+                "enabled": bool(
                     data.get(
                         "enabled",
-                        False
+                        True
                     )
                 )
-
             }
-
         },
-
         upsert=True
-
     )
 
     return {
@@ -4414,7 +3264,6 @@ def save_command():
 
 CREATE_CHANNEL_HTML = """
 <!DOCTYPE html>
-
 <html lang="ar" dir="rtl">
 
 <head>
@@ -4430,101 +3279,53 @@ content="width=device-width,initial-scale=1">
 
 <style>
 
-body {
-
-    margin:0;
-
-    background:#090914;
-
-    color:white;
-
-    font-family:Arial;
-
+body{
+margin:0;
+background:#090914;
+color:white;
+font-family:Arial
 }
 
-.container {
-
-    width:min(550px,92%);
-
-    margin:80px auto;
-
+.container{
+width:min(550px,92%);
+margin:80px auto
 }
 
-.card {
-
-    background:#ffffff08;
-
-    border:
-        1px solid
-        #ffffff12;
-
-    border-radius:22px;
-
-    padding:25px;
-
+.card{
+background:#ffffff08;
+border:1px solid #ffffff12;
+border-radius:22px;
+padding:25px
 }
 
-input,select {
-
-    width:100%;
-
-    padding:14px;
-
-    margin:
-        8px 0
-        18px;
-
-    box-sizing:border-box;
-
-    border-radius:12px;
-
-    border:
-        1px solid
-        #ffffff14;
-
-    background:#ffffff0b;
-
-    color:white;
-
+input,select{
+width:100%;
+padding:14px;
+margin:8px 0 18px;
+box-sizing:border-box;
+border-radius:12px;
+border:1px solid #ffffff14;
+background:#ffffff0b;
+color:white
 }
 
-button {
-
-    width:100%;
-
-    padding:14px;
-
-    border:0;
-
-    border-radius:13px;
-
-    background:
-        linear-gradient(
-            135deg,
-            #7136ff,
-            #ad65ff
-        );
-
-    color:white;
-
-    font-weight:bold;
-
-    cursor:pointer;
-
+button{
+width:100%;
+padding:14px;
+border:0;
+border-radius:13px;
+background:linear-gradient(135deg,#7136ff,#ad65ff);
+color:white;
+font-weight:bold;
+cursor:pointer
 }
 
-.back {
-
-    display:block;
-
-    margin-top:15px;
-
-    color:#b58aff;
-
-    text-align:center;
-
-    text-decoration:none;
-
+.back{
+display:block;
+margin-top:15px;
+color:#b58aff;
+text-align:center;
+text-decoration:none
 }
 
 </style>
@@ -4541,13 +3342,11 @@ button {
 📁 إنشاء روم
 </h1>
 
-
 <form method="POST">
 
 <label>
 اسم الروم
 </label>
-
 
 <input
 name="name"
@@ -4556,11 +3355,9 @@ required
 maxlength="100"
 >
 
-
 <label>
 نوع الروم
 </label>
-
 
 <select name="type">
 
@@ -4574,20 +3371,15 @@ maxlength="100"
 
 </select>
 
-
 <button>
 ✨ إنشاء الروم
 </button>
 
 </form>
 
-
-<a
-class="back"
+<a class="back"
 href="/server/{{ guild_id }}">
-
 ← الرجوع للسيرفر
-
 </a>
 
 </div>
@@ -4595,7 +3387,6 @@ href="/server/{{ guild_id }}">
 </div>
 
 </body>
-
 </html>
 """
 
@@ -4614,15 +3405,11 @@ def create_channel():
     ).strip()
 
     if not guild_id:
-
         return redirect(
             url_for("dashboard")
         )
 
-    if not user_can_control(
-        guild_id
-    ):
-
+    if not user_can_control(guild_id):
         return redirect(
             url_for("dashboard")
         )
@@ -4630,23 +3417,15 @@ def create_channel():
     if request.method == "GET":
 
         return render_template_string(
-
             CREATE_CHANNEL_HTML,
-
-            guild_id=
-            guild_id
-
+            guild_id=guild_id
         )
 
     name = (
-
         request.form.get(
             "name",
             ""
-        )
-
-        .strip()
-
+        ).strip()
     )
 
     channel_type = request.form.get(
@@ -4655,42 +3434,26 @@ def create_channel():
     )
 
     if not name:
-
         return (
             "اسم الروم مطلوب.",
             400
         )
 
     payload = {
-
-        "name":
-        name,
-
+        "name": name,
         "type":
         0
         if channel_type == "text"
         else 2
-
     }
 
-    try:
+    response = discord_request(
+        "POST",
+        f"{DISCORD_API}/guilds/{guild_id}/channels",
+        json=payload
+    )
 
-        response = requests.post(
-
-            f"{DISCORD_API}/guilds/{guild_id}/channels",
-
-            headers=
-            discord_headers(),
-
-            json=
-            payload,
-
-            timeout=10,
-
-        )
-
-    except requests.RequestException:
-
+    if response is None:
         return (
             "❌ تعذر الاتصال بـ Discord.",
             500
@@ -4702,37 +3465,47 @@ def create_channel():
     ):
 
         return (
-
             "❌ فشل إنشاء الروم.<br><br>"
-
             "تأكد أن البوت يملك "
             "Manage Channels "
             "في السيرفر.",
-
             403
-
         )
+
+    # تحديث Cache
+    cache_delete(
+        f"bot_channels:{guild_id}"
+    )
 
     return redirect(
-
         url_for(
-
             "server_page",
-
-            guild_id=
-            guild_id
-
+            guild_id=guild_id
         )
-
     )
 
 
 # =========================================================
-# تسجيل خروج
+# تسجيل الخروج
 # =========================================================
 
 @app.route("/logout")
 def logout():
+
+    token = session.get(
+        "access_token"
+    )
+
+    if token:
+        cache_delete(
+            "oauth_user:"
+            + token[:16]
+        )
+
+        cache_delete(
+            "oauth_guilds:"
+            + token[:16]
+        )
 
     session.clear()
 
@@ -4748,18 +3521,13 @@ def logout():
 if __name__ == "__main__":
 
     port = int(
-
         os.getenv(
             "PORT",
             "8080"
         )
-
     )
 
     app.run(
-
         host="0.0.0.0",
-
         port=port
-
     )
