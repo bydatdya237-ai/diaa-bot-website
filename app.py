@@ -101,6 +101,17 @@ guilds_collection = db["website_guilds"]
 
 settings_collection = db["website_command_settings"]
 
+# =========================================================
+# مهم:
+# إعدادات الاقتصاد مستقلة لكل سيرفر
+#
+# {
+#     "guild_id": "123",
+#     "currency_enabled": True,
+#     "economy_room_id": "456"
+# }
+# =========================================================
+
 economy_settings_collection = db["economy_settings"]
 
 
@@ -484,13 +495,6 @@ def prepare_channels_for_picker(
 
 # =========================================================
 # صلاحية المستخدم على السيرفر
-#
-# الآن يتم التحقق من Discord مباشرة:
-# - مالك السيرفر
-# - Administrator
-# - Manage Server
-#
-# بالإضافة إلى الشخص المسجل كالشخص الذي أضاف البوت.
 # =========================================================
 
 def user_can_control(guild_id):
@@ -509,7 +513,7 @@ def user_can_control(guild_id):
     )
 
     # =====================================================
-    # التحقق المباشر من سيرفرات المستخدم في Discord
+    # التحقق المباشر من Discord
     # =====================================================
 
     user_guilds = get_user_guilds()
@@ -558,7 +562,7 @@ def user_can_control(guild_id):
         break
 
     # =====================================================
-    # السماح للشخص الذي أضاف البوت
+    # الشخص الذي أضاف البوت
     # =====================================================
 
     guild_data = guilds_collection.find_one({
@@ -1368,10 +1372,6 @@ def dashboard():
         user["id"]
     )
 
-    # =====================================================
-    # جلب سيرفرات المستخدم من Discord مباشرة
-    # =====================================================
-
     discord_guilds = get_user_guilds()
 
     result = []
@@ -1387,10 +1387,6 @@ def dashboard():
 
         if not guild_id:
             continue
-
-        # =================================================
-        # يجب أن يكون البوت موجوداً
-        # =================================================
 
         if not bot_in_guild(
             guild_id
@@ -1428,10 +1424,6 @@ def dashboard():
             permissions & 0x20
         )
 
-        # =================================================
-        # بيانات Mongo
-        # =================================================
-
         database_guild = (
             guilds_collection.find_one({
                 "guild_id":
@@ -1455,10 +1447,6 @@ def dashboard():
             and user_id == installer_id
         )
 
-        # =================================================
-        # السماح للمستخدم
-        # =================================================
-
         if not (
             owner
             or is_admin
@@ -1467,10 +1455,6 @@ def dashboard():
         ):
 
             continue
-
-        # =================================================
-        # جلب بيانات البوت للسيرفر
-        # =================================================
 
         bot_guild = get_bot_guild(
             guild_id
@@ -1488,10 +1472,6 @@ def dashboard():
                 guild_name
             )
 
-        # =================================================
-        # تحديد المالك
-        # =================================================
-
         owner_id = str(
             discord_guild.get(
                 "owner_id",
@@ -1508,10 +1488,6 @@ def dashboard():
                 )
             )
 
-        # =================================================
-        # حفظ/تحديث بيانات السيرفر
-        # =================================================
-
         update_data = {
 
             "guild_id":
@@ -1527,9 +1503,6 @@ def dashboard():
             datetime.utcnow()
 
         }
-
-        # لا نمسح installer_id القديم
-        # إذا كان موجوداً
 
         if is_installer:
 
@@ -1552,10 +1525,6 @@ def dashboard():
             upsert=True
 
         )
-
-        # =================================================
-        # حالة المستخدم
-        # =================================================
 
         if owner:
 
@@ -2172,6 +2141,10 @@ function enableEconomy() {
             "economyRoomId"
         );
 
+    if (!input) {
+        return;
+    }
+
     const roomId =
         input.value.trim();
 
@@ -2217,7 +2190,7 @@ function enableEconomy() {
             if (data.success) {
 
                 showEconomyMessage(
-                    "✅ تم تفعيل نظام الاقتصاد.",
+                    "✅ تم حفظ وتفعيل نظام الاقتصاد في هذا السيرفر.",
                     true
                 );
 
@@ -2267,9 +2240,12 @@ function changeEconomyRoom() {
         return;
     }
 
+    const cleanRoomId =
+        roomId.trim();
+
     if (
         !/^\\d+$/.test(
-            roomId.trim()
+            cleanRoomId
         )
     ) {
 
@@ -2297,7 +2273,7 @@ function changeEconomyRoom() {
                 "{{ guild_id }}",
 
                 economy_room_id:
-                roomId.trim()
+                cleanRoomId
 
             })
 
@@ -2312,7 +2288,7 @@ function changeEconomyRoom() {
             if (data.success) {
 
                 alert(
-                    "✅ تم تغيير روم الاقتصاد."
+                    "✅ تم حفظ روم الاقتصاد الجديد."
                 );
 
                 location.reload();
@@ -2328,6 +2304,15 @@ function changeEconomyRoom() {
                 );
 
             }
+
+        }
+    )
+    .catch(
+        () => {
+
+            alert(
+                "❌ تعذر الاتصال بالموقع."
+            );
 
         }
     );
@@ -2394,6 +2379,15 @@ function disableEconomy() {
             }
 
         }
+    )
+    .catch(
+        () => {
+
+            alert(
+                "❌ تعذر الاتصال بالموقع."
+            );
+
+        }
     );
 
 }
@@ -2417,7 +2411,13 @@ def server_page(
 
     guild_id = str(
         guild_id
-    )
+    ).strip()
+
+    if not guild_id:
+
+        return redirect(
+            url_for("dashboard")
+        )
 
     if not user_can_control(
         guild_id
@@ -2426,10 +2426,6 @@ def server_page(
         return redirect(
             url_for("dashboard")
         )
-
-    # =====================================================
-    # بيانات السيرفر مباشرة من Discord
-    # =====================================================
 
     discord_guild = get_bot_guild(
         guild_id
@@ -2442,24 +2438,16 @@ def server_page(
             404
         )
 
-    # =====================================================
-    # الرومات مباشرة من Discord
-    # =====================================================
-
     discord_channels = get_bot_channels(
         guild_id
     )
-
-    # =====================================================
-    # الرتب مباشرة من Discord
-    # =====================================================
 
     discord_roles = get_bot_roles(
         guild_id
     )
 
     # =====================================================
-    # بيانات الاقتصاد لهذا السيرفر فقط
+    # قراءة اقتصاد هذا السيرفر فقط
     # =====================================================
 
     economy = (
@@ -2472,11 +2460,11 @@ def server_page(
         or {}
     )
 
-    economy_enabled = bool(
+    economy_enabled = (
         economy.get(
             "currency_enabled",
             False
-        )
+        ) is True
     )
 
     economy_room_id = str(
@@ -2484,7 +2472,7 @@ def server_page(
             "economy_room_id",
             ""
         )
-    )
+    ).strip()
 
     economy_room_name = "غير محدد"
 
@@ -2507,12 +2495,11 @@ def server_page(
 
         if economy_room_name == "غير محدد":
 
-            economy_room_name = (
-                economy_room_id
-            )
+            economy_room_name = economy_room_id
 
     # =====================================================
-    # تحديث بيانات السيرفر في Mongo
+    # تحديث بيانات السيرفر
+    # هذا لا يلمس economy_settings
     # =====================================================
 
     guilds_collection.update_one(
@@ -2589,7 +2576,7 @@ def server_page(
 
 
 # =========================================================
-# تفعيل نظام الاقتصاد
+# تفعيل / تغيير روم الاقتصاد
 # =========================================================
 
 @app.route(
@@ -2616,41 +2603,90 @@ def enable_economy():
         )
     ).strip()
 
+    # =====================================================
+    # التحقق من البيانات
+    # =====================================================
+
     if not guild_id:
 
         return {
-            "success":False,
+            "success": False,
             "error":
             "guild_id مفقود."
         }, 400
+
+    if not economy_room_id:
+
+        return {
+            "success": False,
+            "error":
+            "ID روم الاقتصاد مفقود."
+        }, 400
+
+    if not economy_room_id.isdigit():
+
+        return {
+            "success": False,
+            "error":
+            "ID روم الاقتصاد غير صحيح."
+        }, 400
+
+    # =====================================================
+    # التحقق من صلاحية المستخدم
+    # =====================================================
 
     if not user_can_control(
         guild_id
     ):
 
         return {
-            "success":False,
+            "success": False,
             "error":
             "غير مصرح لك."
         }, 403
 
-    if not economy_room_id.isdigit():
+    # =====================================================
+    # التأكد أن البوت موجود في السيرفر
+    # =====================================================
+
+    bot_guild = get_bot_guild(
+        guild_id
+    )
+
+    if not bot_guild:
 
         return {
-            "success":False,
+            "success": False,
             "error":
-            "ID روم الاقتصاد غير صحيح."
-        }, 400
+            "البوت غير موجود في هذا السيرفر."
+        }, 404
 
     # =====================================================
-    # التأكد من الروم مباشرة من Discord
+    # جلب رومات السيرفر مباشرة من Discord
     # =====================================================
 
     channels = get_bot_channels(
         guild_id
     )
 
-    channel_exists = False
+    if not channels:
+
+        return {
+            "success": False,
+            "error":
+            "تعذر جلب رومات السيرفر من Discord."
+        }, 400
+
+    # =====================================================
+    # البحث عن الروم المطلوب
+    #
+    # 0 = Text
+    # 5 = News / Announcement
+    #
+    # Forum = 15 ممنوع للاقتصاد
+    # =====================================================
+
+    selected_channel = None
 
     for channel in channels:
 
@@ -2664,26 +2700,61 @@ def enable_economy():
             "type"
         )
 
-        if channel_type in (
+        if channel_type not in (
             0,
-            5,
-            15
+            5
         ):
 
-            channel_exists = True
+            return {
+                "success": False,
+                "error":
+                "روم الاقتصاد يجب أن يكون رومًا كتابيًا."
+            }, 400
+
+        selected_channel = channel
 
         break
 
-    if not channel_exists:
+    # =====================================================
+    # الروم غير موجود
+    # =====================================================
+
+    if selected_channel is None:
 
         return {
-            "success":False,
+            "success": False,
             "error":
-            "روم الاقتصاد غير موجود أو ليس رومًا كتابيًا."
+            "روم الاقتصاد غير موجود في هذا السيرفر."
         }, 400
 
     # =====================================================
-    # حفظ إعداد الاقتصاد لهذا السيرفر فقط
+    # الاسم
+    # =====================================================
+
+    economy_room_name = str(
+        selected_channel.get(
+            "name",
+            "روم الاقتصاد"
+        )
+    )
+
+    # =====================================================
+    # الحفظ
+    #
+    # مهم جداً:
+    # guild_id هو مفتاح السيرفر.
+    #
+    # بالتالي:
+    #
+    # سيرفر A
+    # guild_id = A
+    # economy_room_id = room A
+    #
+    # سيرفر B
+    # guild_id = B
+    # economy_room_id = room B
+    #
+    # ولا يوجد أي ID سيرفر ثابت هنا.
     # =====================================================
 
     economy_settings_collection.update_one(
@@ -2712,8 +2783,68 @@ def enable_economy():
 
     )
 
+    # =====================================================
+    # قراءة البيانات بعد الحفظ
+    # للتأكد أن Mongo حفظها فعلاً
+    # =====================================================
+
+    saved = economy_settings_collection.find_one({
+
+        "guild_id":
+        guild_id
+
+    })
+
+    if not saved:
+
+        return {
+            "success": False,
+            "error":
+            "تعذر حفظ إعدادات الاقتصاد في قاعدة البيانات."
+        }, 500
+
+    saved_room_id = str(
+        saved.get(
+            "economy_room_id",
+            ""
+        )
+    ).strip()
+
+    saved_enabled = (
+        saved.get(
+            "currency_enabled",
+            False
+        ) is True
+    )
+
+    if (
+        saved_room_id != economy_room_id
+        or not saved_enabled
+    ):
+
+        return {
+            "success": False,
+            "error":
+            "تم إرسال الحفظ لكن لم يتم التحقق من البيانات المحفوظة."
+        }, 500
+
     return {
-        "success":True
+
+        "success":
+        True,
+
+        "guild_id":
+        guild_id,
+
+        "economy_room_id":
+        saved_room_id,
+
+        "economy_room_name":
+        economy_room_name,
+
+        "currency_enabled":
+        True
+
     }
 
 
@@ -2741,7 +2872,7 @@ def disable_economy():
     if not guild_id:
 
         return {
-            "success":False,
+            "success": False,
             "error":
             "guild_id مفقود."
         }, 400
@@ -2751,10 +2882,14 @@ def disable_economy():
     ):
 
         return {
-            "success":False,
+            "success": False,
             "error":
             "غير مصرح لك."
         }, 403
+
+    # =====================================================
+    # تعطيل اقتصاد هذا السيرفر فقط
+    # =====================================================
 
     economy_settings_collection.update_one(
 
@@ -2780,7 +2915,8 @@ def disable_economy():
     )
 
     return {
-        "success":True
+        "success": True,
+        "guild_id": guild_id
     }
 
 
@@ -2904,6 +3040,8 @@ nav {
     font-weight:bold;
 
     cursor:pointer;
+
+    text-decoration:none;
 
 }
 
@@ -3216,6 +3354,8 @@ href="/server/{{ guild_id }}">
 </nav>
 
 
+{% if commands %}
+
 {% for command in commands %}
 
 <div class="card command">
@@ -3256,6 +3396,16 @@ onclick='openSettings({{ command.name|tojson }})'>
 </div>
 
 {% endfor %}
+
+{% else %}
+
+<div class="card">
+
+لا توجد أوامر محفوظة حالياً.
+
+</div>
+
+{% endif %}
 
 </div>
 
@@ -3332,6 +3482,7 @@ id="enabledCheck"
 <div class="picker">
 
 <button
+type="button"
 class="picker-btn"
 onclick="togglePicker('channelsMenu')"
 id="channelButton">
@@ -3386,6 +3537,7 @@ value="{{ channel.id }}"
 <div class="picker">
 
 <button
+type="button"
 class="picker-btn"
 onclick="togglePicker('rolesMenu')"
 id="roleButton">
@@ -3398,6 +3550,8 @@ id="roleButton">
 <div
 class="menu"
 id="rolesMenu">
+
+{% if roles %}
 
 {% for role in roles %}
 
@@ -3415,12 +3569,23 @@ value="{{ role.id }}"
 
 {% endfor %}
 
+{% else %}
+
+<div class="empty-picker">
+
+❌ لا توجد رتب.
+
+</div>
+
+{% endif %}
+
 </div>
 
 </div>
 
 
 <button
+type="button"
 class="btn save"
 onclick="saveSettings()">
 
@@ -3495,8 +3660,19 @@ function openSettings(
     .then(
         data => {
 
-            if (!data.success)
+            if (!data.success) {
+
+                if (data.error) {
+
+                    alert(
+                        "❌ " +
+                        data.error
+                    );
+
+                }
+
                 return;
+            }
 
 
             (
@@ -3516,8 +3692,10 @@ function openSettings(
                         );
 
                     if (box) {
+
                         box.checked =
                             true;
+
                     }
 
                 }
@@ -3541,8 +3719,10 @@ function openSettings(
                         );
 
                     if (box) {
+
                         box.checked =
                             true;
+
                     }
 
                 }
@@ -3562,8 +3742,8 @@ function openSettings(
     .catch(
         () => {
 
-            console.log(
-                "تعذر جلب إعدادات الأمر"
+            alert(
+                "❌ تعذر جلب إعدادات الأمر."
             );
 
         }
@@ -3675,27 +3855,21 @@ document.addEventListener(
 
 function saveSettings() {
 
-    const channels = [
-
-        ...
+    const channels = Array.from(
         document.querySelectorAll(
             ".channel-check:checked"
         )
-
-    ].map(
+    ).map(
         x =>
         String(x.value)
     );
 
 
-    const roles = [
-
-        ...
+    const roles = Array.from(
         document.querySelectorAll(
             ".role-check:checked"
         )
-
-    ].map(
+    ).map(
         x =>
         String(x.value)
     );
@@ -3790,6 +3964,189 @@ function saveSettings() {
 
 
 # =========================================================
+# Route صفحة الأوامر
+#
+# هذا كان ناقصاً في الملف السابق
+# =========================================================
+
+@app.route("/commands")
+def commands_page():
+
+    guild_id = str(
+        request.args.get(
+            "guild",
+            ""
+        )
+    ).strip()
+
+    if not guild_id:
+
+        return redirect(
+            url_for("dashboard")
+        )
+
+    if not user_can_control(
+        guild_id
+    ):
+
+        return redirect(
+            url_for("dashboard")
+        )
+
+    # =====================================================
+    # جلب الرومات والرتب من Discord
+    # =====================================================
+
+    discord_channels = get_bot_channels(
+        guild_id
+    )
+
+    discord_roles = get_bot_roles(
+        guild_id
+    )
+
+    channels = prepare_channels_for_picker(
+        discord_channels
+    )
+
+    roles = []
+
+    for role in discord_roles:
+
+        if not isinstance(
+            role,
+            dict
+        ):
+            continue
+
+        role_id = str(
+            role.get(
+                "id",
+                ""
+            )
+        )
+
+        role_name = str(
+            role.get(
+                "name",
+                "رتبة"
+            )
+        )
+
+        if not role_id:
+            continue
+
+        roles.append({
+
+            "id":
+            role_id,
+
+            "name":
+            role_name,
+
+            "position":
+            role.get(
+                "position",
+                0
+            )
+
+        })
+
+    roles.sort(
+        key=lambda x:
+        x.get(
+            "position",
+            0
+        ),
+        reverse=True
+    )
+
+    # =====================================================
+    # جلب الأوامر من Mongo
+    # =====================================================
+
+    raw_commands = list(
+        commands_collection.find({})
+    )
+
+    commands = []
+
+    for command in raw_commands:
+
+        if not isinstance(
+            command,
+            dict
+        ):
+            continue
+
+        command_name = str(
+            command.get(
+                "name",
+                command.get(
+                    "command_name",
+                    ""
+                )
+            )
+        ).strip()
+
+        if not command_name:
+            continue
+
+        description = str(
+            command.get(
+                "description",
+                "لا يوجد وصف لهذا الأمر."
+            )
+        )
+
+        commands.append({
+
+            "name":
+            command_name,
+
+            "description":
+            description,
+
+            "is_admin_display":
+            is_admin_command(
+                command
+            )
+
+        })
+
+    # =====================================================
+    # إذا كان هناك أوامر ثابتة في قاعدة البيانات
+    # يتم ترتيبها أبجدياً
+    # =====================================================
+
+    commands.sort(
+        key=lambda x:
+        x.get(
+            "name",
+            ""
+        )
+    )
+
+    return render_template_string(
+
+        COMMANDS_HTML,
+
+        guild_id=
+        guild_id,
+
+        commands=
+        commands,
+
+        channels=
+        channels,
+
+        roles=
+        roles
+
+    )
+
+
+# =========================================================
 # جلب إعداد أمر
 # =========================================================
 
@@ -3812,15 +4169,23 @@ def command_settings():
     ):
 
         return {
-            "success":False
+            "success": False
         }
+
+    guild_id = str(
+        guild_id
+    ).strip()
+
+    command_name = str(
+        command_name
+    ).strip()
 
     if not user_can_control(
         guild_id
     ):
 
         return {
-            "success":False,
+            "success": False,
             "error":
             "غير مصرح"
         }, 403
@@ -3833,7 +4198,7 @@ def command_settings():
     ):
 
         return {
-            "success":False,
+            "success": False,
             "error":
             "هذا الأمر متاح لصاحب البوت فقط."
         }, 403
@@ -3841,10 +4206,10 @@ def command_settings():
     setting = settings_collection.find_one({
 
         "guild_id":
-        str(guild_id),
+        guild_id,
 
         "command_name":
-        str(command_name)
+        command_name
 
     })
 
@@ -3852,21 +4217,21 @@ def command_settings():
 
         return {
 
-            "success":True,
+            "success": True,
 
-            "channel_ids":[],
+            "channel_ids": [],
 
-            "role_ids":[],
+            "role_ids": [],
 
-            "enabled":False
+            "enabled": False
 
         }
 
     return {
 
-        "success":True,
+        "success": True,
 
-        "channel_ids":[
+        "channel_ids": [
 
             str(x)
 
@@ -3877,7 +4242,7 @@ def command_settings():
 
         ],
 
-        "role_ids":[
+        "role_ids": [
 
             str(x)
 
@@ -3911,13 +4276,19 @@ def save_command():
         silent=True
     ) or {}
 
-    guild_id = data.get(
-        "guild_id"
-    )
+    guild_id = str(
+        data.get(
+            "guild_id",
+            ""
+        )
+    ).strip()
 
-    command_name = data.get(
-        "command_name"
-    )
+    command_name = str(
+        data.get(
+            "command_name",
+            ""
+        )
+    ).strip()
 
     channel_ids = [
 
@@ -3927,6 +4298,8 @@ def save_command():
             "channel_ids",
             []
         )
+
+        if str(x).strip()
 
     ]
 
@@ -3939,6 +4312,8 @@ def save_command():
             []
         )
 
+        if str(x).strip()
+
     ]
 
     if (
@@ -3948,7 +4323,7 @@ def save_command():
 
         return {
 
-            "success":False,
+            "success": False,
 
             "error":
             "بيانات ناقصة"
@@ -3961,7 +4336,7 @@ def save_command():
 
         return {
 
-            "success":False,
+            "success": False,
 
             "error":
             "غير مصرح لك"
@@ -3977,7 +4352,7 @@ def save_command():
 
         return {
 
-            "success":False,
+            "success": False,
 
             "error":
             "هذا الأمر متاح لصاحب البوت فقط."
@@ -3989,10 +4364,10 @@ def save_command():
         {
 
             "guild_id":
-            str(guild_id),
+            guild_id,
 
             "command_name":
-            str(command_name)
+            command_name
 
         },
 
@@ -4001,10 +4376,10 @@ def save_command():
             "$set": {
 
                 "guild_id":
-                str(guild_id),
+                guild_id,
 
                 "command_name":
-                str(command_name),
+                command_name,
 
                 "channel_ids":
                 channel_ids,
@@ -4029,7 +4404,7 @@ def save_command():
     )
 
     return {
-        "success":True
+        "success": True
     }
 
 
@@ -4227,13 +4602,16 @@ href="/server/{{ guild_id }}">
 
 @app.route(
     "/create-channel",
-    methods=["GET","POST"]
+    methods=["GET", "POST"]
 )
 def create_channel():
 
-    guild_id = request.args.get(
-        "guild"
-    )
+    guild_id = str(
+        request.args.get(
+            "guild",
+            ""
+        )
+    ).strip()
 
     if not guild_id:
 
