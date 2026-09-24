@@ -1,7 +1,6 @@
 import os
 import time
 import secrets
-import threading
 from urllib.parse import urlencode
 from datetime import datetime
 
@@ -83,16 +82,12 @@ guilds_collection = db["website_guilds"]
 settings_collection = db["website_command_settings"]
 economy_settings_collection = db["economy_settings"]
 
-# اختصارات الأوامر
 aliases_collection = db["website_command_aliases"]
 
 
 # =========================================================
 # Discord API
 # =========================================================
-
-_rate_limit_cache = {}
-
 
 def discord_request(
     method,
@@ -127,7 +122,9 @@ def discord_request(
         if response.status_code == 429:
             try:
                 data = response.json()
-                retry_after = float(data.get("retry_after", 1))
+                retry_after = float(
+                    data.get("retry_after", 1)
+                )
             except Exception:
                 retry_after = 1
 
@@ -157,7 +154,10 @@ def clean_id(value):
 
 
 def is_forced_economy_guild(guild_id):
-    return clean_id(guild_id) == FORCED_ECONOMY_GUILD_ID
+    return (
+        clean_id(guild_id)
+        == FORCED_ECONOMY_GUILD_ID
+    )
 
 
 def guild_id_variants(guild_id):
@@ -179,18 +179,25 @@ def get_user():
     if not access_token:
         return None
 
-    response = requests.get(
-        f"{DISCORD_API}/users/@me",
-        headers={
-            "Authorization": f"Bearer {access_token}"
-        },
-        timeout=15,
-    )
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/users/@me",
+            headers={
+                "Authorization":
+                    f"Bearer {access_token}"
+            },
+            timeout=15,
+        )
+    except requests.RequestException:
+        return None
 
     if response.status_code != 200:
         return None
 
-    return response.json()
+    try:
+        return response.json()
+    except Exception:
+        return None
 
 
 def is_bot_owner(user_id):
@@ -203,13 +210,17 @@ def get_user_guilds():
     if not access_token:
         return []
 
-    response = requests.get(
-        f"{DISCORD_API}/users/@me/guilds",
-        headers={
-            "Authorization": f"Bearer {access_token}"
-        },
-        timeout=15,
-    )
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/users/@me/guilds",
+            headers={
+                "Authorization":
+                    f"Bearer {access_token}"
+            },
+            timeout=15,
+        )
+    except requests.RequestException:
+        return []
 
     if response.status_code != 200:
         return []
@@ -316,9 +327,15 @@ def prepare_channels_for_picker(channels):
 
         result.append({
             "id": str(channel.get("id")),
-            "name": channel.get("name", "بدون اسم"),
+            "name": channel.get(
+                "name",
+                "بدون اسم"
+            ),
             "type": normalize_channel_type(channel),
-            "position": channel.get("position", 0),
+            "position": channel.get(
+                "position",
+                0
+            ),
         })
 
     return result
@@ -327,21 +344,14 @@ def prepare_channels_for_picker(channels):
 def get_economy_settings(guild_id):
     variants = guild_id_variants(guild_id)
 
-    document = economy_settings_collection.find_one({
+    return economy_settings_collection.find_one({
         "guild_id": {
             "$in": variants
         }
     })
 
-    return document
-
 
 def choose_default_economy_room(channels):
-    """
-    إذا كان السيرفر الإجباري ما عنده روم اقتصاد محفوظ،
-    نحاول اختيار روم نصي مناسب تلقائياً.
-    """
-
     usable = [
         c for c in channels
         if c.get("type") in (0, 5)
@@ -362,17 +372,19 @@ def choose_default_economy_room(channels):
 
     for preferred in preferred_names:
         for channel in usable:
-            if channel.get("name", "").lower() == preferred.lower():
+            if (
+                channel.get("name", "").lower()
+                == preferred.lower()
+            ):
                 return str(channel["id"])
 
     return str(usable[0]["id"])
 
 
-def ensure_forced_economy(guild_id, channels=None):
-    """
-    يضمن أن السيرفر الإجباري اقتصادُه مفعّل دائماً.
-    """
-
+def ensure_forced_economy(
+    guild_id,
+    channels=None
+):
     guild_id = clean_id(guild_id)
 
     if not is_forced_economy_guild(guild_id):
@@ -381,7 +393,10 @@ def ensure_forced_economy(guild_id, channels=None):
     document = get_economy_settings(guild_id)
 
     if document:
-        room_id = document.get("economy_room_id")
+
+        room_id = document.get(
+            "economy_room_id"
+        )
 
         update_data = {
             "guild_id": guild_id,
@@ -390,7 +405,9 @@ def ensure_forced_economy(guild_id, channels=None):
         }
 
         if room_id:
-            update_data["economy_room_id"] = str(room_id)
+            update_data["economy_room_id"] = str(
+                room_id
+            )
 
         economy_settings_collection.update_one(
             {"_id": document["_id"]},
@@ -404,9 +421,13 @@ def ensure_forced_economy(guild_id, channels=None):
         )
 
     if channels is None:
-        channels = get_bot_channels(guild_id)
+        channels = get_bot_channels(
+            guild_id
+        )
 
-    room_id = choose_default_economy_room(channels)
+    room_id = choose_default_economy_room(
+        channels
+    )
 
     data = {
         "guild_id": guild_id,
@@ -418,7 +439,10 @@ def ensure_forced_economy(guild_id, channels=None):
     economy_settings_collection.update_one(
         {
             "guild_id": {
-                "$in": guild_id_variants(guild_id)
+                "$in":
+                    guild_id_variants(
+                        guild_id
+                    )
             }
         },
         {
@@ -427,7 +451,9 @@ def ensure_forced_economy(guild_id, channels=None):
         upsert=True,
     )
 
-    return get_economy_settings(guild_id)
+    return get_economy_settings(
+        guild_id
+    )
 
 
 def user_can_control(guild_id):
@@ -436,7 +462,9 @@ def user_can_control(guild_id):
     if not user:
         return False
 
-    user_id = clean_id(user.get("id"))
+    user_id = clean_id(
+        user.get("id")
+    )
 
     if is_bot_owner(user_id):
         return True
@@ -446,14 +474,25 @@ def user_can_control(guild_id):
     target = None
 
     for guild in guilds:
-        if clean_id(guild.get("id")) == clean_id(guild_id):
+        if (
+            clean_id(guild.get("id"))
+            == clean_id(guild_id)
+        ):
             target = guild
             break
 
     if not target:
         return False
 
-    permissions = int(target.get("permissions", 0))
+    try:
+        permissions = int(
+            target.get(
+                "permissions",
+                0
+            )
+        )
+    except Exception:
+        permissions = 0
 
     ADMINISTRATOR = 0x8
     MANAGE_GUILD = 0x20
@@ -465,25 +504,38 @@ def user_can_control(guild_id):
         return True
 
     installer = guilds_collection.find_one({
-        "guild_id": clean_id(guild_id),
-        "installer_id": user_id,
+        "guild_id":
+            clean_id(guild_id),
+        "installer_id":
+            user_id,
     })
 
     return installer is not None
 
 
-def get_command_setting(guild_id, command_name):
-    return settings_collection.find_one({
-        "guild_id": clean_id(guild_id),
-        "command_name": command_name,
-    }) or settings_collection.find_one({
-        "guild_id": clean_id(guild_id),
-        "name": command_name,
-    })
+def get_command_setting(
+    guild_id,
+    command_name
+):
+    return (
+        settings_collection.find_one({
+            "guild_id":
+                clean_id(guild_id),
+            "command_name":
+                command_name,
+        })
+        or
+        settings_collection.find_one({
+            "guild_id":
+                clean_id(guild_id),
+            "name":
+                command_name,
+        })
+    )
 
 
 # =========================================================
-# HTML
+# HTML / CSS
 # =========================================================
 
 BASE_STYLE = """
@@ -493,52 +545,39 @@ BASE_STYLE = """
     box-sizing: border-box;
 }
 
-:root {
-    --blue: #2563eb;
-    --blue2: #38bdf8;
-    --yellow: #facc15;
-    --yellow2: #f59e0b;
-
-    --bg: #06101f;
-    --bg2: #0a172b;
-    --card: rgba(12, 27, 48, .82);
-    --card2: rgba(18, 37, 62, .9);
-
-    --text: #f8fafc;
-    --muted: #94a3b8;
-    --border: rgba(255,255,255,.09);
-
-    --gradient: linear-gradient(
-        135deg,
-        #2563eb 0%,
-        #38bdf8 42%,
-        #facc15 100%
-    );
+html {
+    width: 100%;
+    overflow-x: hidden;
 }
 
 body {
     margin: 0;
     min-height: 100vh;
+    width: 100%;
+
     background:
         radial-gradient(
-            circle at 15% 10%,
+            circle at 10% 10%,
             rgba(37,99,235,.18),
             transparent 32%
         ),
         radial-gradient(
-            circle at 85% 85%,
+            circle at 90% 85%,
             rgba(250,204,21,.13),
             transparent 30%
         ),
-        var(--bg);
+        #06101f;
 
-    color: var(--text);
+    color: #f8fafc;
+
     font-family:
         Arial,
         Tahoma,
         sans-serif;
 
     direction: rtl;
+
+    overflow-x: hidden;
 }
 
 a {
@@ -552,87 +591,153 @@ select {
     font: inherit;
 }
 
+button {
+    -webkit-tap-highlight-color: transparent;
+}
+
 .topbar {
     position: sticky;
     top: 0;
-    z-index: 50;
+    z-index: 100;
+
+    width: 100%;
 
     backdrop-filter: blur(20px);
 
-    background: rgba(5,15,29,.78);
-    border-bottom: 1px solid var(--border);
+    background:
+        rgba(5,15,29,.86);
+
+    border-bottom:
+        1px solid rgba(255,255,255,.09);
 }
 
 .topbar-inner {
+    width: 100%;
     max-width: 1250px;
+
     margin: auto;
 
-    padding: 18px 20px;
+    padding:
+        16px 20px;
 
     display: flex;
+
     justify-content: space-between;
     align-items: center;
+
     gap: 15px;
+
+    min-width: 0;
 }
 
 .brand {
+    min-width: 0;
+
+    max-width: 75%;
+
     display: flex;
+
     align-items: center;
+
     gap: 12px;
 
     font-size: 22px;
     font-weight: 900;
+
+    overflow: hidden;
+
+    white-space: nowrap;
 }
 
 .brand-icon {
     width: 44px;
     height: 44px;
 
+    min-width: 44px;
+
     border-radius: 14px;
 
-    background: var(--gradient);
+    background:
+        linear-gradient(
+            135deg,
+            #2563eb 0%,
+            #38bdf8 45%,
+            #facc15 100%
+        );
 
     display: grid;
+
     place-items: center;
 
     color: #07111f;
+
     font-weight: 1000;
 
     box-shadow:
-        0 8px 30px rgba(37,99,235,.25);
+        0 8px 30px
+        rgba(37,99,235,.25);
 }
 
 .container {
+    width: 100%;
     max-width: 1250px;
+
     margin: auto;
 
-    padding: 45px 20px 80px;
+    padding:
+        45px 20px 80px;
+
+    min-width: 0;
 }
 
 .hero {
     margin-bottom: 28px;
+
+    min-width: 0;
 }
 
 .hero h1 {
-    font-size: clamp(30px, 5vw, 48px);
-    margin: 0 0 10px;
+    font-size:
+        clamp(30px, 5vw, 48px);
+
+    margin:
+        0 0 10px;
+
     font-weight: 1000;
+
+    overflow-wrap: anywhere;
 }
 
 .gradient-text {
-    background: var(--gradient);
+    background:
+        linear-gradient(
+            135deg,
+            #2563eb 0%,
+            #38bdf8 45%,
+            #facc15 100%
+        );
+
     -webkit-background-clip: text;
     background-clip: text;
+
     color: transparent;
 }
 
 .hero p {
-    color: var(--muted);
+    color: #94a3b8;
+
     font-size: 16px;
+
     line-height: 1.8;
+
+    overflow-wrap: anywhere;
 }
 
 .card {
+    width: 100%;
+
+    min-width: 0;
+
     background:
         linear-gradient(
             145deg,
@@ -640,7 +745,8 @@ select {
             rgba(7,20,36,.9)
         );
 
-    border: 1px solid var(--border);
+    border:
+        1px solid rgba(255,255,255,.09);
 
     border-radius: 24px;
 
@@ -649,42 +755,68 @@ select {
     margin-bottom: 20px;
 
     box-shadow:
-        0 20px 70px rgba(0,0,0,.25);
+        0 20px 70px
+        rgba(0,0,0,.25);
+
+    overflow: hidden;
 }
 
 .card-title {
     display: flex;
+
     justify-content: space-between;
+
     align-items: center;
 
     gap: 15px;
 
+    flex-wrap: wrap;
+
     margin-bottom: 20px;
+
+    min-width: 0;
 }
 
 .card-title h2,
 .card-title h3 {
     margin: 0;
+
+    overflow-wrap: anywhere;
 }
 
 .grid {
     display: grid;
+
     grid-template-columns:
-        repeat(auto-fit, minmax(270px, 1fr));
+        repeat(
+            auto-fit,
+            minmax(
+                min(270px, 100%),
+                1fr
+            )
+        );
 
     gap: 18px;
+
+    min-width: 0;
 }
 
 .server-card {
-    background: var(--card);
+    min-width: 0;
 
-    border: 1px solid var(--border);
+    background:
+        rgba(12,27,48,.82);
+
+    border:
+        1px solid rgba(255,255,255,.09);
 
     border-radius: 22px;
 
     padding: 22px;
 
     transition: .2s;
+
+    overflow: hidden;
 }
 
 .server-card:hover {
@@ -695,25 +827,46 @@ select {
 }
 
 .server-name {
+    width: 100%;
+
     font-size: 19px;
+
     font-weight: 900;
 
     margin-bottom: 7px;
+
+    overflow-wrap: anywhere;
+
+    word-break: break-word;
+
+    line-height: 1.5;
 }
 
 .server-id {
+    width: 100%;
+
     font-size: 12px;
-    color: var(--muted);
+
+    color: #94a3b8;
 
     direction: ltr;
+
     text-align: right;
+
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
 }
 
 .btn {
     border: 0;
+
     border-radius: 14px;
 
-    padding: 12px 17px;
+    padding:
+        12px 17px;
 
     cursor: pointer;
 
@@ -731,17 +884,26 @@ select {
     transition: .2s;
 
     display: inline-flex;
+
     justify-content: center;
+
     align-items: center;
 
     gap: 8px;
+
+    max-width: 100%;
+
+    white-space: normal;
+
+    text-align: center;
 }
 
 .btn:hover {
     transform: translateY(-2px);
 
     box-shadow:
-        0 10px 30px rgba(37,99,235,.25);
+        0 10px 30px
+        rgba(37,99,235,.25);
 }
 
 .btn-yellow {
@@ -774,19 +936,27 @@ select {
 
 .status {
     display: inline-flex;
+
     align-items: center;
+
     gap: 8px;
 
-    padding: 7px 11px;
+    padding:
+        7px 11px;
 
     border-radius: 999px;
 
     font-size: 12px;
+
     font-weight: 900;
+
+    flex-shrink: 0;
 }
 
 .status-on {
-    background: rgba(34,197,94,.12);
+    background:
+        rgba(34,197,94,.12);
+
     color: #86efac;
 }
 
@@ -801,16 +971,21 @@ select {
     color: #fde68a;
 
     border:
-        1px solid rgba(250,204,21,.2);
+        1px solid
+        rgba(250,204,21,.2);
 }
 
 .status-off {
-    background: rgba(239,68,68,.12);
+    background:
+        rgba(239,68,68,.12);
+
     color: #fca5a5;
 }
 
 .form-group {
     margin-bottom: 18px;
+
+    min-width: 0;
 }
 
 .form-label {
@@ -819,19 +994,27 @@ select {
     margin-bottom: 9px;
 
     font-size: 13px;
+
     font-weight: 900;
 
     color: #cbd5e1;
+
+    overflow-wrap: anywhere;
 }
 
 .input {
     width: 100%;
 
-    padding: 14px 15px;
+    min-width: 0;
+
+    padding:
+        14px 15px;
 
     border-radius: 15px;
 
-    border: 1px solid var(--border);
+    border:
+        1px solid
+        rgba(255,255,255,.09);
 
     background: #07182c;
 
@@ -844,11 +1027,14 @@ select {
     border-color: #38bdf8;
 
     box-shadow:
-        0 0 0 3px rgba(56,189,248,.08);
+        0 0 0 3px
+        rgba(56,189,248,.08);
 }
 
 .select-box {
     width: 100%;
+
+    min-width: 0;
 
     min-height: 58px;
 
@@ -856,11 +1042,19 @@ select {
 
     background: #07182c;
 
-    border: 1px solid var(--border);
+    border:
+        1px solid
+        rgba(255,255,255,.09);
 
     color: white;
 
     padding: 15px;
+
+    outline: none;
+}
+
+.select-box:focus {
+    border-color: #38bdf8;
 }
 
 .toolbar {
@@ -874,15 +1068,24 @@ select {
 }
 
 .command-card {
-    border: 1px solid var(--border);
+    width: 100%;
 
-    background: rgba(5,18,33,.65);
+    min-width: 0;
+
+    border:
+        1px solid
+        rgba(255,255,255,.09);
+
+    background:
+        rgba(5,18,33,.65);
 
     border-radius: 20px;
 
     padding: 18px;
 
     margin-bottom: 13px;
+
+    overflow: hidden;
 }
 
 .command-head {
@@ -895,53 +1098,63 @@ select {
     gap: 15px;
 
     margin-bottom: 16px;
+
+    min-width: 0;
+
+    flex-wrap: wrap;
+}
+
+.command-head > div:first-child {
+    min-width: 0;
+
+    flex: 1 1 auto;
 }
 
 .command-name {
+    max-width: 100%;
+
     font-size: 17px;
+
     font-weight: 1000;
-}
 
-.badge {
-    padding: 5px 9px;
+    overflow-wrap: anywhere;
 
-    border-radius: 999px;
+    word-break: break-word;
 
-    font-size: 11px;
-    font-weight: 900;
-}
-
-.badge-admin {
-    color: #fde68a;
-
-    background:
-        rgba(250,204,21,.12);
-}
-
-.badge-normal {
-    color: #7dd3fc;
-
-    background:
-        rgba(56,189,248,.12);
+    line-height: 1.5;
 }
 
 .command-grid {
     display: grid;
 
     grid-template-columns:
-        repeat(2, minmax(0,1fr));
+        repeat(
+            2,
+            minmax(
+                0,
+                1fr
+            )
+        );
 
     gap: 14px;
+
+    width: 100%;
+
+    min-width: 0;
 }
 
-@media(max-width:700px) {
-    .command-grid {
-        grid-template-columns: 1fr;
-    }
+.command-grid > div {
+    min-width: 0;
 }
 
 .picker {
-    border: 1px solid var(--border);
+    width: 100%;
+
+    min-width: 0;
+
+    border:
+        1px solid
+        rgba(255,255,255,.09);
 
     border-radius: 18px;
 
@@ -951,20 +1164,32 @@ select {
 }
 
 .picker-top {
+    width: 100%;
+
+    min-width: 0;
+
     padding: 12px;
 
     border-bottom:
-        1px solid var(--border);
+        1px solid
+        rgba(255,255,255,.09);
 }
 
 .picker-search {
+    display: block;
+
     width: 100%;
 
-    padding: 11px 13px;
+    min-width: 0;
+
+    padding:
+        11px 13px;
 
     border-radius: 12px;
 
-    border: 1px solid var(--border);
+    border:
+        1px solid
+        rgba(255,255,255,.09);
 
     background: #0a1d34;
 
@@ -973,20 +1198,30 @@ select {
     outline: none;
 }
 
+.picker-search:focus {
+    border-color: #38bdf8;
+}
+
 .picker-actions {
     display: flex;
 
     gap: 7px;
 
     margin-top: 8px;
+
+    min-width: 0;
 }
 
 .mini-btn {
     flex: 1;
 
+    min-width: 0;
+
     padding: 8px;
 
-    border: 1px solid var(--border);
+    border:
+        1px solid
+        rgba(255,255,255,.09);
 
     border-radius: 10px;
 
@@ -999,18 +1234,37 @@ select {
     font-size: 11px;
 
     font-weight: 900;
+
+    overflow: hidden;
+
+    white-space: nowrap;
+
+    text-overflow: ellipsis;
 }
 
 .options {
+    width: 100%;
+
     max-height: 250px;
 
     overflow-y: auto;
 
+    overflow-x: hidden;
+
     padding: 8px;
+
+    min-width: 0;
 }
 
 .option {
-    display: flex;
+    width: 100%;
+
+    min-width: 0;
+
+    display: grid;
+
+    grid-template-columns:
+        20px minmax(0, 1fr);
 
     align-items: center;
 
@@ -1023,25 +1277,45 @@ select {
     cursor: pointer;
 
     transition: .15s;
+
+    overflow: hidden;
 }
 
 .option:hover {
-    background: rgba(56,189,248,.07);
+    background:
+        rgba(56,189,248,.07);
 }
 
 .option input {
     accent-color: #38bdf8;
 
     width: 17px;
+
     height: 17px;
+
+    margin: 0;
+
+    flex-shrink: 0;
 }
 
-.option-name {
+.option span {
+    display: block;
+
+    min-width: 0;
+
+    width: 100%;
+
     overflow: hidden;
 
     text-overflow: ellipsis;
 
     white-space: nowrap;
+
+    line-height: 1.5;
+
+    direction: rtl;
+
+    text-align: right;
 }
 
 .selected-count {
@@ -1050,12 +1324,15 @@ select {
     color: #94a3b8;
 
     margin-top: 8px;
+
+    min-height: 16px;
 }
 
 .switch {
     position: relative;
 
     width: 52px;
+
     height: 29px;
 
     flex-shrink: 0;
@@ -1085,9 +1362,11 @@ select {
     position: absolute;
 
     width: 21px;
+
     height: 21px;
 
     left: 4px;
+
     top: 4px;
 
     border-radius: 50%;
@@ -1106,39 +1385,53 @@ select {
         );
 }
 
-.switch input:checked + .slider:before {
-    transform: translateX(23px);
+.switch input:checked
++ .slider:before {
+    transform:
+        translateX(23px);
 }
 
 .alias-row {
     display: grid;
 
     grid-template-columns:
-        1fr 1fr auto;
+        minmax(0,1fr)
+        minmax(0,1fr)
+        auto;
 
     gap: 10px;
 
     align-items: end;
+
+    min-width: 0;
 }
 
-@media(max-width:700px) {
-    .alias-row {
-        grid-template-columns: 1fr;
-    }
+.alias-row > div {
+    min-width: 0;
+}
+
+.alias-row .btn {
+    white-space: nowrap;
 }
 
 .alias-list {
     margin-top: 15px;
+
+    min-width: 0;
 }
 
 .alias-item {
+    width: 100%;
+
+    min-width: 0;
+
     display: flex;
 
     justify-content: space-between;
 
     align-items: center;
 
-    gap: 10px;
+    gap: 12px;
 
     padding: 13px;
 
@@ -1146,9 +1439,19 @@ select {
 
     background: #081a2f;
 
-    border: 1px solid var(--border);
+    border:
+        1px solid
+        rgba(255,255,255,.09);
 
     margin-bottom: 8px;
+
+    overflow: hidden;
+}
+
+.alias-item > div:first-child {
+    min-width: 0;
+
+    flex: 1;
 }
 
 .alias-code {
@@ -1159,11 +1462,28 @@ select {
     color: #fde68a;
 
     font-weight: 900;
+
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
+}
+
+.alias-item .small {
+    overflow-wrap: anywhere;
+}
+
+.alias-item .btn {
+    flex-shrink: 0;
 }
 
 .small {
     font-size: 12px;
-    color: var(--muted);
+
+    color: #94a3b8;
+
+    line-height: 1.6;
 }
 
 .notice {
@@ -1171,7 +1491,8 @@ select {
 
     border-radius: 16px;
 
-    border: 1px solid
+    border:
+        1px solid
         rgba(56,189,248,.15);
 
     background:
@@ -1180,6 +1501,8 @@ select {
     color: #bae6fd;
 
     line-height: 1.8;
+
+    overflow-wrap: anywhere;
 }
 
 .empty {
@@ -1187,7 +1510,7 @@ select {
 
     text-align: center;
 
-    color: var(--muted);
+    color: #94a3b8;
 }
 
 .footer {
@@ -1200,6 +1523,198 @@ select {
     margin-top: 35px;
 }
 
+
+/* =========================================================
+   تحسينات الشاشات المتوسطة
+   ========================================================= */
+
+@media(max-width:950px) {
+
+    .command-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .alias-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .alias-row .btn {
+        grid-column: 1 / -1;
+
+        width: 100%;
+    }
+}
+
+
+/* =========================================================
+   تحسينات الجوال
+   ========================================================= */
+
+@media(max-width:700px) {
+
+    .topbar-inner {
+        padding:
+            12px 14px;
+
+        gap: 10px;
+    }
+
+    .brand {
+        font-size: 17px;
+
+        max-width: 65%;
+    }
+
+    .brand-icon {
+        width: 38px;
+        height: 38px;
+
+        min-width: 38px;
+
+        border-radius: 12px;
+    }
+
+    .topbar .btn {
+        padding:
+            10px 12px;
+
+        font-size: 12px;
+    }
+
+    .container {
+        padding:
+            30px 13px 60px;
+    }
+
+    .hero {
+        margin-bottom: 22px;
+    }
+
+    .hero h1 {
+        font-size: 32px;
+    }
+
+    .hero p {
+        font-size: 14px;
+    }
+
+    .card {
+        border-radius: 19px;
+
+        padding: 17px;
+    }
+
+    .server-card {
+        padding: 18px;
+
+        border-radius: 18px;
+    }
+
+    .command-card {
+        padding: 14px;
+
+        border-radius: 17px;
+    }
+
+    .command-head {
+        align-items: flex-start;
+    }
+
+    .command-name {
+        font-size: 15px;
+    }
+
+    .command-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .picker {
+        border-radius: 15px;
+    }
+
+    .options {
+        max-height: 220px;
+    }
+
+    .alias-row {
+        grid-template-columns: 1fr;
+    }
+
+    .alias-row .btn {
+        grid-column: auto;
+
+        width: 100%;
+    }
+
+    .alias-item {
+        align-items: stretch;
+
+        flex-direction: column;
+    }
+
+    .alias-item .btn {
+        width: 100%;
+    }
+
+    .card-title {
+        align-items: flex-start;
+    }
+}
+
+
+/* =========================================================
+   شاشات الجوال الصغيرة جداً
+   ========================================================= */
+
+@media(max-width:420px) {
+
+    .container {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .topbar-inner {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .brand {
+        max-width: 60%;
+
+        font-size: 15px;
+    }
+
+    .brand-icon {
+        width: 34px;
+        height: 34px;
+
+        min-width: 34px;
+    }
+
+    .topbar .btn {
+        font-size: 11px;
+
+        padding:
+            9px 10px;
+    }
+
+    .card {
+        padding: 14px;
+    }
+
+    .command-card {
+        padding: 12px;
+    }
+
+    .picker-actions {
+        flex-direction: column;
+    }
+
+    .mini-btn {
+        width: 100%;
+    }
+}
+
 </style>
 """
 
@@ -1210,23 +1725,42 @@ select {
 
 @app.route("/")
 def home():
+
     user = get_user()
 
     if user:
-        return redirect(url_for("dashboard"))
+        return redirect(
+            url_for("dashboard")
+        )
 
     return render_template_string(
         BASE_STYLE + """
         <div class="container">
 
-            <div class="hero" style="text-align:center;padding-top:70px">
+            <div
+                class="hero"
+                style="
+                    text-align:center;
+                    padding-top:70px
+                "
+            >
 
-                <div class="brand"
-                     style="justify-content:center;margin-bottom:25px">
+                <div
+                    class="brand"
+                    style="
+                        justify-content:center;
+                        max-width:100%;
+                        margin-bottom:25px
+                    "
+                >
 
-                    <div class="brand-icon">ض</div>
+                    <div class="brand-icon">
+                        ض
+                    </div>
 
-                    <span>ضياء BOT</span>
+                    <span>
+                        ضياء BOT
+                    </span>
 
                 </div>
 
@@ -1238,8 +1772,9 @@ def home():
                 </h1>
 
                 <p>
-                    إدارة السيرفر، الأوامر، الرتب، الرومات
-                    واختصارات الأوامر من مكان واحد.
+                    إدارة السيرفر، الأوامر، الرتب،
+                    الرومات واختصارات الأوامر
+                    من مكان واحد.
                 </p>
 
                 <a
@@ -1263,6 +1798,7 @@ def home():
 
 @app.route("/login")
 def login():
+
     params = {
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
@@ -1278,24 +1814,32 @@ def login():
 
 @app.route("/callback")
 def callback():
+
     code = request.args.get("code")
 
     if not code:
-        return redirect(url_for("home"))
+        return redirect(
+            url_for("home")
+        )
 
     data = {
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "grant_type": "authorization_code",
+        "grant_type":
+            "authorization_code",
         "code": code,
-        "redirect_uri": REDIRECT_URI,
+        "redirect_uri":
+            REDIRECT_URI,
     }
 
-    response = requests.post(
-        f"{DISCORD_API}/oauth2/token",
-        data=data,
-        timeout=15,
-    )
+    try:
+        response = requests.post(
+            f"{DISCORD_API}/oauth2/token",
+            data=data,
+            timeout=15,
+        )
+    except requests.RequestException:
+        return "فشل الاتصال بديسكورد", 500
 
     if response.status_code != 200:
         return "فشل تسجيل الدخول", 400
@@ -1306,7 +1850,9 @@ def callback():
         "access_token"
     )
 
-    return redirect(url_for("dashboard"))
+    return redirect(
+        url_for("dashboard")
+    )
 
 
 # =========================================================
@@ -1315,10 +1861,13 @@ def callback():
 
 @app.route("/dashboard")
 def dashboard():
+
     user = get_user()
 
     if not user:
-        return redirect(url_for("home"))
+        return redirect(
+            url_for("home")
+        )
 
     guilds = get_user_guilds()
 
@@ -1326,11 +1875,11 @@ def dashboard():
 
     for guild in guilds:
 
-        guild_id = clean_id(guild.get("id"))
+        guild_id = clean_id(
+            guild.get("id")
+        )
 
-        bot_exists = bot_in_guild(guild_id)
-
-        if not bot_exists:
+        if not bot_in_guild(guild_id):
             continue
 
         if not user_can_control(guild_id):
@@ -1343,10 +1892,14 @@ def dashboard():
             {
                 "$set": {
                     "guild_id": guild_id,
-                    "name": guild.get("name"),
-                    "icon": guild.get("icon"),
-                    "installer_id": user.get("id"),
-                    "updated_at": datetime.utcnow(),
+                    "name":
+                        guild.get("name"),
+                    "icon":
+                        guild.get("icon"),
+                    "installer_id":
+                        user.get("id"),
+                    "updated_at":
+                        datetime.utcnow(),
                 }
             },
             upsert=True,
@@ -1357,34 +1910,46 @@ def dashboard():
     return render_template_string(
         BASE_STYLE + """
         <div class="topbar">
+
             <div class="topbar-inner">
 
                 <div class="brand">
-                    <div class="brand-icon">ض</div>
+                    <div class="brand-icon">
+                        ض
+                    </div>
+
                     ضياء BOT
                 </div>
 
-                <a class="btn btn-secondary"
-                   href="{{ url_for('logout') }}">
+                <a
+                    class="btn btn-secondary"
+                    href="{{ url_for('logout') }}"
+                >
                     تسجيل الخروج
                 </a>
 
             </div>
+
         </div>
 
         <div class="container">
 
             <div class="hero">
+
                 <h1>
                     أهلاً بك،
                     <span class="gradient-text">
-                        {{ user.get("username", "المستخدم") }}
+                        {{ user.get(
+                            "username",
+                            "المستخدم"
+                        ) }}
                     </span>
                 </h1>
 
                 <p>
                     اختر السيرفر الذي تريد إدارته.
                 </p>
+
             </div>
 
             {% if visible_guilds %}
@@ -1396,7 +1961,10 @@ def dashboard():
                 <div class="server-card">
 
                     <div class="server-name">
-                        {{ guild.get("name", "بدون اسم") }}
+                        {{ guild.get(
+                            "name",
+                            "بدون اسم"
+                        ) }}
                     </div>
 
                     <div class="server-id">
@@ -1405,10 +1973,14 @@ def dashboard():
 
                     <a
                         class="btn"
-                        style="width:100%;margin-top:18px"
+                        style="
+                            width:100%;
+                            margin-top:18px
+                        "
                         href="{{ url_for(
                             'server_page',
-                            guild_id=guild.get('id')
+                            guild_id=
+                                guild.get('id')
                         ) }}"
                     >
                         إدارة السيرفر
@@ -1423,7 +1995,8 @@ def dashboard():
             {% else %}
 
             <div class="card empty">
-                لا يوجد سيرفر متاح للإدارة حالياً.
+                لا يوجد سيرفر متاح
+                للإدارة حالياً.
             </div>
 
             {% endif %}
@@ -1445,43 +2018,74 @@ def server_page(guild_id):
     guild_id = clean_id(guild_id)
 
     if not user_can_control(guild_id):
-        return "ليس لديك صلاحية إدارة هذا السيرفر", 403
+        return (
+            "ليس لديك صلاحية إدارة هذا السيرفر",
+            403
+        )
 
     guild = get_bot_guild(guild_id)
 
     if not guild:
-        return "البوت غير موجود في هذا السيرفر", 404
+        return (
+            "البوت غير موجود في هذا السيرفر",
+            404
+        )
 
-    raw_channels = get_bot_channels(guild_id)
-    channels = prepare_channels_for_picker(raw_channels)
+    raw_channels = get_bot_channels(
+        guild_id
+    )
+
+    channels = prepare_channels_for_picker(
+        raw_channels
+    )
 
     roles = get_bot_roles(guild_id)
 
-    # الاقتصاد الإجباري
     if is_forced_economy_guild(guild_id):
+
         economy = ensure_forced_economy(
             guild_id,
             raw_channels
         )
+
     else:
-        economy = get_economy_settings(guild_id)
+
+        economy = get_economy_settings(
+            guild_id
+        )
 
     economy_enabled = bool(
-        economy and
-        economy.get("currency_enabled") is True
+        economy
+        and
+        economy.get(
+            "currency_enabled"
+        ) is True
     )
 
     economy_room_id = (
-        str(economy.get("economy_room_id"))
-        if economy and economy.get("economy_room_id")
+        str(
+            economy.get(
+                "economy_room_id"
+            )
+        )
+        if economy
+        and economy.get(
+            "economy_room_id"
+        )
         else ""
     )
 
     economy_room_name = "غير محدد"
 
     for channel in channels:
-        if str(channel["id"]) == economy_room_id:
-            economy_room_name = channel["name"]
+
+        if (
+            str(channel["id"])
+            == economy_room_id
+        ):
+            economy_room_name = (
+                channel["name"]
+            )
             break
 
     return render_template_string(
@@ -1491,12 +2095,24 @@ def server_page(guild_id):
             <div class="topbar-inner">
 
                 <div class="brand">
-                    <div class="brand-icon">ض</div>
-                    {{ guild.get("name", "السيرفر") }}
+
+                    <div class="brand-icon">
+                        ض
+                    </div>
+
+                    {{ guild.get(
+                        "name",
+                        "السيرفر"
+                    ) }}
+
                 </div>
 
-                <a class="btn btn-secondary"
-                   href="{{ url_for('dashboard') }}">
+                <a
+                    class="btn btn-secondary"
+                    href="{{ url_for(
+                        'dashboard'
+                    ) }}"
+                >
                     ← رجوع
                 </a>
 
@@ -1516,8 +2132,8 @@ def server_page(guild_id):
                 </h1>
 
                 <p>
-                    تحكم بالاقتصاد والأوامر والاختصارات
-                    والرتب والرومات.
+                    تحكم بالاقتصاد والأوامر
+                    والاختصارات والرتب والرومات.
                 </p>
 
             </div>
@@ -1529,44 +2145,71 @@ def server_page(guild_id):
 
                 <div class="card-title">
 
-                    <div>
-                        <h2>💰 الاقتصاد</h2>
+                    <div style="min-width:0">
+
+                        <h2>
+                            💰 الاقتصاد
+                        </h2>
 
                         {% if forced %}
-                        <div class="small"
-                             style="margin-top:7px">
-                            الاقتصاد إجباري في هذا السيرفر
+
+                        <div
+                            class="small"
+                            style="margin-top:7px"
+                        >
+                            الاقتصاد إجباري
+                            في هذا السيرفر
                         </div>
+
                         {% endif %}
+
                     </div>
 
+
                     {% if forced %}
-                    <span class="status status-forced">
+
+                    <span
+                        class="status status-forced"
+                    >
                         🔒 إجباري
                     </span>
 
                     {% elif economy_enabled %}
-                    <span class="status status-on">
+
+                    <span
+                        class="status status-on"
+                    >
                         ● مفعّل
                     </span>
 
                     {% else %}
-                    <span class="status status-off">
+
+                    <span
+                        class="status status-off"
+                    >
                         ● معطّل
                     </span>
+
                     {% endif %}
 
                 </div>
 
+
                 {% if forced %}
 
-                    <div class="notice">
-                        هذا السيرفر محدد من المطور ليعمل فيه
-                        نظام الاقتصاد بشكل إجباري.
-                        لا يمكن تعطيل الاقتصاد من الموقع.
-                    </div>
+                <div class="notice">
+
+                    هذا السيرفر محدد من المطور
+                    ليعمل فيه نظام الاقتصاد
+                    بشكل إجباري.
+
+                    لا يمكن تعطيل الاقتصاد
+                    من الموقع.
+
+                </div>
 
                 {% endif %}
+
 
                 <div style="margin-top:20px">
 
@@ -1587,26 +2230,27 @@ def server_page(guild_id):
 
                             {% for channel in channels %}
 
-                                {% if channel.type in
-                                    ["text", "announcement"] %}
+                            {% if channel.type in
+                                ["text", "announcement"] %}
 
-                                <option
-                                    value="{{ channel.id }}"
-                                    {% if channel.id ==
-                                        economy_room_id %}
-                                    selected
-                                    {% endif %}
-                                >
-                                    # {{ channel.name }}
-                                </option>
-
+                            <option
+                                value="{{ channel.id }}"
+                                {% if channel.id ==
+                                    economy_room_id %}
+                                selected
                                 {% endif %}
+                            >
+                                # {{ channel.name }}
+                            </option>
+
+                            {% endif %}
 
                             {% endfor %}
 
                         </select>
 
                     </div>
+
 
                     <button
                         class="btn btn-yellow"
@@ -1615,7 +2259,9 @@ def server_page(guild_id):
                         حفظ روم الاقتصاد
                     </button>
 
-                    {% if not forced and economy_enabled %}
+
+                    {% if not forced
+                        and economy_enabled %}
 
                     <button
                         class="btn btn-danger"
@@ -1627,10 +2273,15 @@ def server_page(guild_id):
 
                     {% endif %}
 
-                    <div class="small"
-                         style="margin-top:12px">
+
+                    <div
+                        class="small"
+                        style="margin-top:12px"
+                    >
                         الروم الحالي:
-                        <b>{{ economy_room_name }}</b>
+                        <b>
+                            {{ economy_room_name }}
+                        </b>
                     </div>
 
                 </div>
@@ -1644,16 +2295,24 @@ def server_page(guild_id):
 
                 <div class="card-title">
 
-                    <div>
-                        <h2>⚙️ إدارة الأوامر</h2>
+                    <div style="min-width:0">
 
-                        <div class="small"
-                             style="margin-top:7px">
-                            الرتب والرومات والاختصارات
+                        <h2>
+                            ⚙️ إدارة الأوامر
+                        </h2>
+
+                        <div
+                            class="small"
+                            style="margin-top:7px"
+                        >
+                            الرتب والرومات
+                            والاختصارات
                         </div>
+
                     </div>
 
                 </div>
+
 
                 <a
                     class="btn"
@@ -1674,17 +2333,24 @@ def server_page(guild_id):
 
                 <div class="card-title">
 
-                    <div>
-                        <h2>⚡ اختصارات الأوامر</h2>
+                    <div style="min-width:0">
 
-                        <div class="small"
-                             style="margin-top:7px">
+                        <h2>
+                            ⚡ اختصارات الأوامر
+                        </h2>
+
+                        <div
+                            class="small"
+                            style="margin-top:7px"
+                        >
                             مثال:
                             -ذهبي ← -ذ
                         </div>
+
                     </div>
 
                 </div>
+
 
                 <a
                     class="btn btn-yellow"
@@ -1711,37 +2377,51 @@ def server_page(guild_id):
         async function saveEconomy() {
 
             const room =
-                document.getElementById(
-                    "economyRoom"
-                ).value;
+                document
+                    .getElementById(
+                        "economyRoom"
+                    )
+                    .value;
 
             if (!room) {
-                alert("اختر روم الاقتصاد أولاً");
+
+                alert(
+                    "اختر روم الاقتصاد أولاً"
+                );
+
                 return;
             }
 
-            const response = await fetch(
-                "{{ url_for('enable_economy') }}",
-                {
-                    method: "POST",
+            const response =
+                await fetch(
+                    "{{ url_for(
+                        'enable_economy'
+                    ) }}",
+                    {
+                        method: "POST",
 
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
 
-                    body: JSON.stringify({
-                        guild_id:
-                            "{{ guild_id }}",
+                        body: JSON.stringify({
+                            guild_id:
+                                "{{ guild_id }}",
 
-                        room_id: room
-                    })
-                }
+                            room_id:
+                                room
+                        })
+                    }
+                );
+
+            const data =
+                await response.json();
+
+            alert(
+                data.message ||
+                "تم الحفظ"
             );
-
-            const data = await response.json();
-
-            alert(data.message || "تم الحفظ");
 
             if (data.success) {
                 location.reload();
@@ -1757,26 +2437,33 @@ def server_page(guild_id):
                 return;
             }
 
-            const response = await fetch(
-                "{{ url_for('disable_economy') }}",
-                {
-                    method: "POST",
+            const response =
+                await fetch(
+                    "{{ url_for(
+                        'disable_economy'
+                    ) }}",
+                    {
+                        method: "POST",
 
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
 
-                    body: JSON.stringify({
-                        guild_id:
-                            "{{ guild_id }}"
-                    })
-                }
+                        body: JSON.stringify({
+                            guild_id:
+                                "{{ guild_id }}"
+                        })
+                    }
+                );
+
+            const data =
+                await response.json();
+
+            alert(
+                data.message ||
+                "تم التنفيذ"
             );
-
-            const data = await response.json();
-
-            alert(data.message || "تم التنفيذ");
 
             if (data.success) {
                 location.reload();
@@ -1789,11 +2476,17 @@ def server_page(guild_id):
         guild_id=guild_id,
         channels=channels,
         roles=roles,
-        economy= economy,
-        economy_enabled=economy_enabled,
-        economy_room_id=economy_room_id,
-        economy_room_name=economy_room_name,
-        forced=is_forced_economy_guild(guild_id),
+        economy=economy,
+        economy_enabled=
+            economy_enabled,
+        economy_room_id=
+            economy_room_id,
+        economy_room_name=
+            economy_room_name,
+        forced=
+            is_forced_economy_guild(
+                guild_id
+            ),
     )
 
 
@@ -1801,13 +2494,32 @@ def server_page(guild_id):
 # Economy Enable
 # =========================================================
 
-@app.route("/api/economy/enable", methods=["POST"])
+@app.route(
+    "/api/economy/enable",
+    methods=["POST"]
+)
 def enable_economy():
 
-    data = request.get_json(silent=True) or {}
+    data = (
+        request.get_json(
+            silent=True
+        )
+        or {}
+    )
 
-    guild_id = clean_id(data.get("guild_id", ""))
-    room_id = clean_id(data.get("room_id", ""))
+    guild_id = clean_id(
+        data.get(
+            "guild_id",
+            ""
+        )
+    )
+
+    room_id = clean_id(
+        data.get(
+            "room_id",
+            ""
+        )
+    )
 
     if not guild_id or not room_id:
         return {
@@ -1818,58 +2530,81 @@ def enable_economy():
     if not user_can_control(guild_id):
         return {
             "success": False,
-            "message": "ليس لديك صلاحية"
+            "message":
+                "ليس لديك صلاحية"
         }, 403
 
-    channels = get_bot_channels(guild_id)
+    channels = get_bot_channels(
+        guild_id
+    )
 
     selected = None
 
     for channel in channels:
-        if str(channel.get("id")) == room_id:
+
+        if (
+            str(channel.get("id"))
+            == room_id
+        ):
             selected = channel
             break
 
     if not selected:
         return {
             "success": False,
-            "message": "الروم غير موجود أو البوت لا يستطيع رؤيته"
+            "message":
+                "الروم غير موجود أو البوت لا يستطيع رؤيته"
         }, 400
 
     if selected.get("type") not in (0, 5):
         return {
             "success": False,
-            "message": "اختر روم نصي"
+            "message":
+                "اختر روم نصي"
         }, 400
 
     economy_settings_collection.update_one(
         {
             "guild_id": {
-                "$in": guild_id_variants(guild_id)
+                "$in":
+                    guild_id_variants(
+                        guild_id
+                    )
             }
         },
         {
             "$set": {
-                "guild_id": guild_id,
-                "currency_enabled": True,
-                "economy_room_id": room_id,
-                "updated_at": datetime.utcnow(),
+                "guild_id":
+                    guild_id,
+
+                "currency_enabled":
+                    True,
+
+                "economy_room_id":
+                    room_id,
+
+                "updated_at":
+                    datetime.utcnow(),
             }
         },
         upsert=True,
     )
 
-    saved = get_economy_settings(guild_id)
+    saved = get_economy_settings(
+        guild_id
+    )
 
     if not saved:
         return {
             "success": False,
-            "message": "فشل حفظ الإعدادات"
+            "message":
+                "فشل حفظ الإعدادات"
         }, 500
 
     return {
         "success": True,
-        "message": "تم تفعيل الاقتصاد وحفظ روم الاقتصاد"
+        "message":
+            "تم تفعيل الاقتصاد وحفظ روم الاقتصاد"
     }
 
 
@@ -1877,42 +2612,68 @@ def enable_economy():
 # Economy Disable
 # =========================================================
 
-@app.route("/api/economy/disable", methods=["POST"])
+@app.route(
+    "/api/economy/disable",
+    methods=["POST"]
+)
 def disable_economy():
 
-    data = request.get_json(silent=True) or {}
+    data = (
+        request.get_json(
+            silent=True
+        )
+        or {}
+    )
 
-    guild_id = clean_id(data.get("guild_id", ""))
+    guild_id = clean_id(
+        data.get(
+            "guild_id",
+            ""
+        )
+    )
 
     if not guild_id:
         return {
             "success": False,
-            "message": "معرف السيرفر ناقص"
+            "message":
+                "معرف السيرفر ناقص"
         }, 400
 
-    if is_forced_economy_guild(guild_id):
+    if is_forced_economy_guild(
+        guild_id
+    ):
         return {
             "success": False,
-            "message": "لا يمكن تعطيل الاقتصاد في هذا السيرفر لأنه إجباري"
+            "message":
+                "لا يمكن تعطيل الاقتصاد في هذا السيرفر لأنه إجباري"
         }, 403
 
     if not user_can_control(guild_id):
         return {
             "success": False,
-            "message": "ليس لديك صلاحية"
+            "message":
+                "ليس لديك صلاحية"
         }, 403
 
     economy_settings_collection.update_one(
         {
             "guild_id": {
-                "$in": guild_id_variants(guild_id)
+                "$in":
+                    guild_id_variants(
+                        guild_id
+                    )
             }
         },
         {
             "$set": {
-                "guild_id": guild_id,
-                "currency_enabled": False,
-                "updated_at": datetime.utcnow(),
+                "guild_id":
+                    guild_id,
+
+                "currency_enabled":
+                    False,
+
+                "updated_at":
+                    datetime.utcnow(),
             }
         },
         upsert=True,
@@ -1920,7 +2681,8 @@ def disable_economy():
 
     return {
         "success": True,
-        "message": "تم تعطيل الاقتصاد"
+        "message":
+            "تم تعطيل الاقتصاد"
     }
 
 
@@ -1928,7 +2690,9 @@ def disable_economy():
 # Commands Page
 # =========================================================
 
-@app.route("/server/<guild_id>/commands")
+@app.route(
+    "/server/<guild_id>/commands"
+)
 def commands_page(guild_id):
 
     guild_id = clean_id(guild_id)
@@ -1941,10 +2705,17 @@ def commands_page(guild_id):
     if not guild:
         return "السيرفر غير موجود", 404
 
-    raw_channels = get_bot_channels(guild_id)
-    channels = prepare_channels_for_picker(raw_channels)
+    raw_channels = get_bot_channels(
+        guild_id
+    )
 
-    roles = get_bot_roles(guild_id)
+    channels = prepare_channels_for_picker(
+        raw_channels
+    )
+
+    roles = get_bot_roles(
+        guild_id
+    )
 
     commands = list(
         commands_collection.find({})
@@ -1957,15 +2728,20 @@ def commands_page(guild_id):
             <div class="topbar-inner">
 
                 <div class="brand">
-                    <div class="brand-icon">ض</div>
+                    <div class="brand-icon">
+                        ض
+                    </div>
+
                     إدارة الأوامر
                 </div>
 
-                <a class="btn btn-secondary"
-                   href="{{ url_for(
-                       'server_page',
-                       guild_id=guild_id
-                   ) }}">
+                <a
+                    class="btn btn-secondary"
+                    href="{{ url_for(
+                        'server_page',
+                        guild_id=guild_id
+                    ) }}"
+                >
                     ← رجوع
                 </a>
 
@@ -1986,8 +2762,8 @@ def commands_page(guild_id):
                 </h1>
 
                 <p>
-                    اختر الرومات والرتب المسموح لها باستخدام
-                    كل أمر.
+                    اختر الرومات والرتب المسموح
+                    لها باستخدام كل أمر.
                 </p>
 
             </div>
@@ -2015,6 +2791,7 @@ def commands_page(guild_id):
                 or "بدون اسم"
             %}
 
+
             <div
                 class="command-card"
                 data-command="{{ command_name|lower }}"
@@ -2028,19 +2805,31 @@ def commands_page(guild_id):
                             -{{ command_name }}
                         </div>
 
-                        <div style="margin-top:7px">
+                        <div
+                            style="margin-top:7px"
+                        >
 
                             {% if command.get(
                                 "is_admin_command"
                             ) %}
 
-                            <span class="badge badge-admin">
+                            <span
+                                class="
+                                    badge
+                                    badge-admin
+                                "
+                            >
                                 🔐 إداري
                             </span>
 
                             {% else %}
 
-                            <span class="badge badge-normal">
+                            <span
+                                class="
+                                    badge
+                                    badge-normal
+                                "
+                            >
                                 👤 عادي
                             </span>
 
@@ -2059,7 +2848,9 @@ def commands_page(guild_id):
                             checked
                         >
 
-                        <span class="slider"></span>
+                        <span
+                            class="slider"
+                        ></span>
 
                     </label>
 
@@ -2067,6 +2858,7 @@ def commands_page(guild_id):
 
 
                 <div class="command-grid">
+
 
                     <!-- الرومات -->
 
@@ -2091,9 +2883,12 @@ def commands_page(guild_id):
                                     "
                                 >
 
-                                <div class="picker-actions">
+                                <div
+                                    class="picker-actions"
+                                >
 
                                     <button
+                                        type="button"
                                         class="mini-btn"
                                         onclick="
                                             selectAll(
@@ -2105,6 +2900,7 @@ def commands_page(guild_id):
                                     </button>
 
                                     <button
+                                        type="button"
                                         class="mini-btn"
                                         onclick="
                                             clearAll(
@@ -2129,7 +2925,9 @@ def commands_page(guild_id):
 
                                 <label
                                     class="option"
-                                    data-search="{{ channel.name|lower }}"
+                                    data-search="
+                                        {{ channel.name|lower }}
+                                    "
                                 >
 
                                     <input
@@ -2152,6 +2950,7 @@ def commands_page(guild_id):
                             </div>
 
                         </div>
+
 
                         <div
                             class="selected-count"
@@ -2186,9 +2985,12 @@ def commands_page(guild_id):
                                     "
                                 >
 
-                                <div class="picker-actions">
+                                <div
+                                    class="picker-actions"
+                                >
 
                                     <button
+                                        type="button"
                                         class="mini-btn"
                                         onclick="
                                             selectAll(
@@ -2200,6 +3002,7 @@ def commands_page(guild_id):
                                     </button>
 
                                     <button
+                                        type="button"
                                         class="mini-btn"
                                         onclick="
                                             clearAll(
@@ -2222,11 +3025,15 @@ def commands_page(guild_id):
 
                                 {% for role in roles %}
 
-                                {% if not role.get("managed") %}
+                                {% if not role.get(
+                                    "managed"
+                                ) %}
 
                                 <label
                                     class="option"
-                                    data-search="{{ role.name|lower }}"
+                                    data-search="
+                                        {{ role.name|lower }}
+                                    "
                                 >
 
                                     <input
@@ -2252,6 +3059,7 @@ def commands_page(guild_id):
 
                         </div>
 
+
                         <div
                             class="selected-count"
                             id="roleCount_{{ loop.index }}"
@@ -2265,6 +3073,7 @@ def commands_page(guild_id):
 
 
                 <button
+                    type="button"
                     class="btn btn-yellow"
                     style="margin-top:18px"
                     onclick="
@@ -2306,16 +3115,22 @@ def commands_page(guild_id):
 
             const value =
                 document
-                    .getElementById("commandSearch")
+                    .getElementById(
+                        "commandSearch"
+                    )
                     .value
-                    .toLowerCase();
+                    .toLowerCase()
+                    .trim();
 
             document
-                .querySelectorAll(".command-card")
+                .querySelectorAll(
+                    ".command-card"
+                )
                 .forEach(card => {
 
                     const name =
-                        card.dataset.command || "";
+                        card.dataset.command
+                        || "";
 
                     card.style.display =
                         name.includes(value)
@@ -2325,61 +3140,87 @@ def commands_page(guild_id):
         }
 
 
-        function filterOptions(input, containerId) {
+        function filterOptions(
+            input,
+            containerId
+        ) {
 
             const value =
-                input.value.toLowerCase();
+                input.value
+                    .toLowerCase()
+                    .trim();
 
             const container =
-                document.getElementById(containerId);
+                document.getElementById(
+                    containerId
+                );
+
+            if (!container) {
+                return;
+            }
 
             container
-                .querySelectorAll(".option")
+                .querySelectorAll(
+                    ".option"
+                )
                 .forEach(option => {
 
                     const search =
-                        option.dataset.search || "";
+                        option.dataset.search
+                        || "";
 
                     option.style.display =
                         search.includes(value)
-                            ? "flex"
+                            ? "grid"
                             : "none";
                 });
         }
 
 
-        function selectAll(containerId) {
+        function selectAll(
+            containerId
+        ) {
 
             const container =
-                document.getElementById(containerId);
+                document.getElementById(
+                    containerId
+                );
+
+            if (!container) {
+                return;
+            }
 
             container
                 .querySelectorAll(
                     '.option input[type="checkbox"]'
                 )
                 .forEach(input => {
-
                     input.checked = true;
-
                 });
 
             updateCounts();
         }
 
 
-        function clearAll(containerId) {
+        function clearAll(
+            containerId
+        ) {
 
             const container =
-                document.getElementById(containerId);
+                document.getElementById(
+                    containerId
+                );
+
+            if (!container) {
+                return;
+            }
 
             container
                 .querySelectorAll(
                     '.option input[type="checkbox"]'
                 )
                 .forEach(input => {
-
                     input.checked = false;
-
                 });
 
             updateCounts();
@@ -2389,8 +3230,10 @@ def commands_page(guild_id):
         function updateCounts() {
 
             document
-                .querySelectorAll(".command-card")
-                .forEach((card, index) => {
+                .querySelectorAll(
+                    ".command-card"
+                )
+                .forEach(card => {
 
                     const channels =
                         card.querySelectorAll(
@@ -2402,33 +3245,33 @@ def commands_page(guild_id):
                             ".role-check:checked"
                         ).length;
 
-                    const channelCount =
-                        card.querySelector(
-                            ".selected-count"
-                        );
-
                     const counters =
                         card.querySelectorAll(
                             ".selected-count"
                         );
 
                     if (counters[0]) {
-                        counters[0].textContent =
+
+                        counters[0]
+                            .textContent =
                             channels
-                            ? "تم تحديد " +
-                              channels +
-                              " روم"
+                            ? "تم تحديد "
+                              + channels
+                              + " روم"
                             : "لم يتم تحديد رومات";
                     }
 
                     if (counters[1]) {
-                        counters[1].textContent =
+
+                        counters[1]
+                            .textContent =
                             roles
-                            ? "تم تحديد " +
-                              roles +
-                              " رتبة"
+                            ? "تم تحديد "
+                              + roles
+                              + " رتبة"
                             : "لم يتم تحديد رتب";
                     }
+
                 });
         }
 
@@ -2438,79 +3281,109 @@ def commands_page(guild_id):
             index
         ) {
 
+            const cards =
+                document.querySelectorAll(
+                    ".command-card"
+                );
+
             const card =
-                document
-                    .querySelectorAll(
-                        ".command-card"
-                    )[index - 1];
+                cards[index - 1];
 
             if (!card) {
-                alert("تعذر العثور على الأمر");
+
+                alert(
+                    "تعذر العثور على الأمر"
+                );
+
                 return;
             }
+
 
             const channels = [
                 ...card.querySelectorAll(
                     ".channel-check:checked"
                 )
-            ].map(x => x.value);
+            ].map(
+                x => x.value
+            );
+
 
             const roles = [
                 ...card.querySelectorAll(
                     ".role-check:checked"
                 )
-            ].map(x => x.value);
+            ].map(
+                x => x.value
+            );
+
 
             const enabled =
                 card.querySelector(
-                    'input[type="checkbox"]'
+                    ".switch input"
                 ).checked;
 
-            const response = await fetch(
-                "{{ url_for('save_command') }}",
-                {
-                    method: "POST",
 
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
+            try {
 
-                    body: JSON.stringify({
+                const response =
+                    await fetch(
+                        "{{ url_for(
+                            'save_command'
+                        ) }}",
+                        {
+                            method: "POST",
 
-                        guild_id:
-                            "{{ guild_id }}",
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
 
-                        command_name:
-                            commandName,
+                            body:
+                                JSON.stringify({
 
-                        channel_ids:
-                            channels,
+                                    guild_id:
+                                        "{{ guild_id }}",
 
-                        role_ids:
-                            roles,
+                                    command_name:
+                                        commandName,
 
-                        enabled:
-                            enabled
-                    })
-                }
-            );
+                                    channel_ids:
+                                        channels,
 
-            const data =
-                await response.json();
+                                    role_ids:
+                                        roles,
 
-            alert(
-                data.message ||
-                "تم حفظ الإعدادات"
-            );
+                                    enabled:
+                                        enabled
+
+                                })
+                        }
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                alert(
+                    data.message ||
+                    "تم حفظ الإعدادات"
+                );
+
+            } catch (error) {
+
+                alert(
+                    "حدث خطأ أثناء حفظ الإعدادات"
+                );
+
+            }
         }
 
 
-        document
-            .addEventListener(
-                "change",
-                updateCounts
-            );
+        document.addEventListener(
+            "change",
+            updateCounts
+        );
 
         updateCounts();
 
@@ -2528,11 +3401,16 @@ def commands_page(guild_id):
 # API Command Settings
 # =========================================================
 
-@app.route("/api/command-settings")
+@app.route(
+    "/api/command-settings"
+)
 def api_command_settings():
 
     guild_id = clean_id(
-        request.args.get("guild_id", "")
+        request.args.get(
+            "guild_id",
+            ""
+        )
     )
 
     command_name = request.args.get(
@@ -2543,13 +3421,15 @@ def api_command_settings():
     if not guild_id or not command_name:
         return {
             "success": False,
-            "message": "بيانات ناقصة"
+            "message":
+                "بيانات ناقصة"
         }, 400
 
     if not user_can_control(guild_id):
         return {
             "success": False,
-            "message": "ليس لديك صلاحية"
+            "message":
+                "ليس لديك صلاحية"
         }, 403
 
     setting = get_command_setting(
@@ -2567,8 +3447,12 @@ def api_command_settings():
 
     return {
         "success": True,
+
         "enabled":
-            setting.get("enabled", True),
+            setting.get(
+                "enabled",
+                True
+            ),
 
         "channel_ids":
             [
@@ -2594,17 +3478,31 @@ def api_command_settings():
 # Save Command
 # =========================================================
 
-@app.route("/save-command", methods=["POST"])
+@app.route(
+    "/save-command",
+    methods=["POST"]
+)
 def save_command():
 
-    data = request.get_json(silent=True) or {}
+    data = (
+        request.get_json(
+            silent=True
+        )
+        or {}
+    )
 
     guild_id = clean_id(
-        data.get("guild_id", "")
+        data.get(
+            "guild_id",
+            ""
+        )
     )
 
     command_name = str(
-        data.get("command_name", "")
+        data.get(
+            "command_name",
+            ""
+        )
     ).strip()
 
     channel_ids = [
@@ -2633,27 +3531,42 @@ def save_command():
     if not guild_id or not command_name:
         return {
             "success": False,
-            "message": "بيانات ناقصة"
+            "message":
+                "بيانات ناقصة"
         }, 400
 
     if not user_can_control(guild_id):
         return {
             "success": False,
-            "message": "ليس لديك صلاحية"
+            "message":
+                "ليس لديك صلاحية"
         }, 403
 
     settings_collection.update_one(
         {
-            "guild_id": guild_id,
-            "command_name": command_name,
+            "guild_id":
+                guild_id,
+
+            "command_name":
+                command_name,
         },
         {
             "$set": {
-                "guild_id": guild_id,
-                "command_name": command_name,
-                "channel_ids": channel_ids,
-                "role_ids": role_ids,
-                "enabled": enabled,
+                "guild_id":
+                    guild_id,
+
+                "command_name":
+                    command_name,
+
+                "channel_ids":
+                    channel_ids,
+
+                "role_ids":
+                    role_ids,
+
+                "enabled":
+                    enabled,
+
                 "updated_at":
                     datetime.utcnow(),
             }
@@ -2663,7 +3576,8 @@ def save_command():
 
     return {
         "success": True,
-        "message": f"تم حفظ إعدادات -{command_name}"
+        "message":
+            f"تم حفظ إعدادات -{command_name}"
     }
 
 
@@ -2671,7 +3585,9 @@ def save_command():
 # Aliases Page
 # =========================================================
 
-@app.route("/server/<guild_id>/aliases")
+@app.route(
+    "/server/<guild_id>/aliases"
+)
 def aliases_page(guild_id):
 
     guild_id = clean_id(guild_id)
@@ -2690,7 +3606,8 @@ def aliases_page(guild_id):
 
     aliases = list(
         aliases_collection.find({
-            "guild_id": guild_id
+            "guild_id":
+                guild_id
         }).sort(
             "created_at",
             -1
@@ -2704,9 +3621,15 @@ def aliases_page(guild_id):
             <div class="topbar-inner">
 
                 <div class="brand">
-                    <div class="brand-icon">ض</div>
+
+                    <div class="brand-icon">
+                        ض
+                    </div>
+
                     اختصارات الأوامر
+
                 </div>
+
 
                 <a
                     class="btn btn-secondary"
@@ -2735,8 +3658,11 @@ def aliases_page(guild_id):
                 </h1>
 
                 <p>
-                    اصنع اختصاراً قصيراً لأي أمر.
-                    مثال: اجعل
+                    اصنع اختصاراً قصيراً
+                    لأي أمر.
+
+                    مثال:
+                    اجعل
                     <b>-ذ</b>
                     ينفذ
                     <b>-ذهبي</b>.
@@ -2760,7 +3686,8 @@ def aliases_page(guild_id):
                             class="select-box"
                         >
 
-                            {% for command in commands %}
+                            {% for command
+                                in commands %}
 
                             {% set name =
                                 command.get("name")
@@ -2771,7 +3698,9 @@ def aliases_page(guild_id):
 
                             {% if name %}
 
-                            <option value="{{ name }}">
+                            <option
+                                value="{{ name }}"
+                            >
                                 -{{ name }}
                             </option>
 
@@ -2801,6 +3730,7 @@ def aliases_page(guild_id):
 
 
                     <button
+                        type="button"
                         class="btn btn-yellow"
                         onclick="createAlias()"
                     >
@@ -2810,12 +3740,16 @@ def aliases_page(guild_id):
                 </div>
 
 
-                <div class="notice"
-                     style="margin-top:20px">
+                <div
+                    class="notice"
+                    style="margin-top:20px"
+                >
 
                     💡 مثال:
+
                     اختر الأمر
                     <b>-ذهبي</b>
+
                     واكتب الاختصار
                     <b>ذ</b>.
 
@@ -2835,8 +3769,13 @@ def aliases_page(guild_id):
             <div class="card">
 
                 <div class="card-title">
-                    <h2>📋 الاختصارات الحالية</h2>
+
+                    <h2>
+                        📋 الاختصارات الحالية
+                    </h2>
+
                 </div>
+
 
                 <div class="alias-list">
 
@@ -2847,13 +3786,18 @@ def aliases_page(guild_id):
                         <div>
 
                             <div class="alias-code">
-                                -{{ item.get("alias") }}
+                                -{{ item.get(
+                                    "alias"
+                                ) }}
                             </div>
 
-                            <div class="small"
-                                 style="margin-top:5px">
+                            <div
+                                class="small"
+                                style="margin-top:5px"
+                            >
 
                                 ينفذ:
+
                                 <b>
                                     -{{ item.get(
                                         "command_name"
@@ -2864,11 +3808,15 @@ def aliases_page(guild_id):
 
                         </div>
 
+
                         <button
+                            type="button"
                             class="btn btn-danger"
                             onclick="
                                 deleteAlias(
-                                    '{{ item.get("alias") }}'
+                                    '{{ item.get(
+                                        "alias"
+                                    ) }}'
                                 )
                             "
                         >
@@ -2908,6 +3856,7 @@ def aliases_page(guild_id):
                     )
                     .value;
 
+
             let alias =
                 document
                     .getElementById(
@@ -2916,63 +3865,91 @@ def aliases_page(guild_id):
                     .value
                     .trim();
 
+
             alias = alias
                 .replace(/^[-.]/, "")
                 .trim();
 
+
             if (!command) {
+
                 alert(
                     "اختر الأمر الأصلي"
                 );
+
                 return;
             }
 
+
             if (!alias) {
+
                 alert(
                     "اكتب الاختصار"
                 );
+
                 return;
             }
 
-            const response = await fetch(
-                "{{ url_for('create_alias') }}",
-                {
-                    method: "POST",
 
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
+            try {
 
-                    body: JSON.stringify({
+                const response =
+                    await fetch(
+                        "{{ url_for(
+                            'create_alias'
+                        ) }}",
+                        {
+                            method: "POST",
 
-                        guild_id:
-                            "{{ guild_id }}",
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
 
-                        command_name:
-                            command,
+                            body:
+                                JSON.stringify({
 
-                        alias:
-                            alias
-                    })
+                                    guild_id:
+                                        "{{ guild_id }}",
+
+                                    command_name:
+                                        command,
+
+                                    alias:
+                                        alias
+
+                                })
+                        }
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                alert(
+                    data.message ||
+                    "تم التنفيذ"
+                );
+
+
+                if (data.success) {
+                    location.reload();
                 }
-            );
 
-            const data =
-                await response.json();
+            } catch (error) {
 
-            alert(
-                data.message ||
-                "تم التنفيذ"
-            );
+                alert(
+                    "حدث خطأ أثناء إنشاء الاختصار"
+                );
 
-            if (data.success) {
-                location.reload();
             }
         }
 
 
-        async function deleteAlias(alias) {
+        async function deleteAlias(
+            alias
+        ) {
 
             if (!confirm(
                 "هل تريد حذف هذا الاختصار؟"
@@ -2980,37 +3957,56 @@ def aliases_page(guild_id):
                 return;
             }
 
-            const response = await fetch(
-                "{{ url_for('delete_alias') }}",
-                {
-                    method: "POST",
 
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
+            try {
 
-                    body: JSON.stringify({
+                const response =
+                    await fetch(
+                        "{{ url_for(
+                            'delete_alias'
+                        ) }}",
+                        {
+                            method: "POST",
 
-                        guild_id:
-                            "{{ guild_id }}",
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
 
-                        alias:
-                            alias
-                    })
+                            body:
+                                JSON.stringify({
+
+                                    guild_id:
+                                        "{{ guild_id }}",
+
+                                    alias:
+                                        alias
+
+                                })
+                        }
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                alert(
+                    data.message ||
+                    "تم التنفيذ"
+                );
+
+
+                if (data.success) {
+                    location.reload();
                 }
-            );
 
-            const data =
-                await response.json();
+            } catch (error) {
 
-            alert(
-                data.message ||
-                "تم التنفيذ"
-            );
+                alert(
+                    "حدث خطأ أثناء حذف الاختصار"
+                );
 
-            if (data.success) {
-                location.reload();
             }
         }
 
@@ -3027,13 +4023,24 @@ def aliases_page(guild_id):
 # Create Alias
 # =========================================================
 
-@app.route("/api/aliases/create", methods=["POST"])
+@app.route(
+    "/api/aliases/create",
+    methods=["POST"]
+)
 def create_alias():
 
-    data = request.get_json(silent=True) or {}
+    data = (
+        request.get_json(
+            silent=True
+        )
+        or {}
+    )
 
     guild_id = clean_id(
-        data.get("guild_id", "")
+        data.get(
+            "guild_id",
+            ""
+        )
     )
 
     command_name = str(
@@ -3052,66 +4059,102 @@ def create_alias():
 
     alias = alias.lstrip("-.").strip()
 
-    if not guild_id or not command_name or not alias:
+
+    if (
+        not guild_id
+        or not command_name
+        or not alias
+    ):
         return {
             "success": False,
-            "message": "البيانات ناقصة"
+            "message":
+                "البيانات ناقصة"
         }, 400
 
-    if not user_can_control(guild_id):
+
+    if not user_can_control(
+        guild_id
+    ):
         return {
             "success": False,
-            "message": "ليس لديك صلاحية"
+            "message":
+                "ليس لديك صلاحية"
         }, 403
+
 
     if len(alias) > 30:
         return {
             "success": False,
-            "message": "الاختصار طويل جداً"
+            "message":
+                "الاختصار طويل جداً"
         }, 400
 
-    # منع الفراغات
-    if any(char.isspace() for char in alias):
+
+    if any(
+        char.isspace()
+        for char in alias
+    ):
         return {
             "success": False,
-            "message": "الاختصار يجب أن يكون كلمة واحدة"
+            "message":
+                "الاختصار يجب أن يكون كلمة واحدة"
         }, 400
 
-    # نتأكد أن الأمر موجود
+
     command = (
         commands_collection.find_one({
-            "name": command_name
+            "name":
+                command_name
         })
         or
         commands_collection.find_one({
-            "command_name": command_name
+            "command_name":
+                command_name
         })
     )
+
 
     if not command:
         return {
             "success": False,
-            "message": "الأمر الأصلي غير موجود"
+            "message":
+                "الأمر الأصلي غير موجود"
         }, 404
 
-    # منع تكرار الاختصار داخل السيرفر
+
     existing = aliases_collection.find_one({
-        "guild_id": guild_id,
-        "alias": alias.lower(),
+        "guild_id":
+            guild_id,
+
+        "alias":
+            alias.lower(),
     })
+
 
     if existing:
         return {
             "success": False,
-            "message": "هذا الاختصار مستخدم بالفعل"
+            "message":
+                "هذا الاختصار مستخدم بالفعل"
         }, 400
 
+
     aliases_collection.insert_one({
-        "guild_id": guild_id,
-        "alias": alias.lower(),
-        "command_name": command_name,
-        "created_at": datetime.utcnow(),
+
+        "guild_id":
+            guild_id,
+
+        "alias":
+            alias.lower(),
+
+        "command_name":
+            command_name,
+
+        "created_at":
+            datetime.utcnow(),
+
     })
+
 
     return {
         "success": True,
@@ -3125,13 +4168,24 @@ def create_alias():
 # Delete Alias
 # =========================================================
 
-@app.route("/api/aliases/delete", methods=["POST"])
+@app.route(
+    "/api/aliases/delete",
+    methods=["POST"]
+)
 def delete_alias():
 
-    data = request.get_json(silent=True) or {}
+    data = (
+        request.get_json(
+            silent=True
+        )
+        or {}
+    )
 
     guild_id = clean_id(
-        data.get("guild_id", "")
+        data.get(
+            "guild_id",
+            ""
+        )
     )
 
     alias = str(
@@ -3141,32 +4195,46 @@ def delete_alias():
         )
     ).strip().lower()
 
+
     if not guild_id or not alias:
         return {
             "success": False,
-            "message": "البيانات ناقصة"
+            "message":
+                "البيانات ناقصة"
         }, 400
 
-    if not user_can_control(guild_id):
+
+    if not user_can_control(
+        guild_id
+    ):
         return {
             "success": False,
-            "message": "ليس لديك صلاحية"
+            "message":
+                "ليس لديك صلاحية"
         }, 403
 
+
     result = aliases_collection.delete_one({
-        "guild_id": guild_id,
-        "alias": alias,
+        "guild_id":
+            guild_id,
+
+        "alias":
+            alias,
     })
+
 
     if result.deleted_count == 0:
         return {
             "success": False,
-            "message": "الاختصار غير موجود"
+            "message":
+                "الاختصار غير موجود"
         }, 404
+
 
     return {
         "success": True,
-        "message": "تم حذف الاختصار"
+        "message":
+            "تم حذف الاختصار"
     }
 
 
@@ -3174,7 +4242,10 @@ def delete_alias():
 # Create Channel
 # =========================================================
 
-@app.route("/create-channel", methods=["GET", "POST"])
+@app.route(
+    "/create-channel",
+    methods=["GET", "POST"]
+)
 def create_channel():
 
     guild_id = clean_id(
@@ -3188,11 +4259,22 @@ def create_channel():
         )
     )
 
-    if not guild_id:
-        return "معرف السيرفر ناقص", 400
 
-    if not user_can_control(guild_id):
-        return "ليس لديك صلاحية", 403
+    if not guild_id:
+        return (
+            "معرف السيرفر ناقص",
+            400
+        )
+
+
+    if not user_can_control(
+        guild_id
+    ):
+        return (
+            "ليس لديك صلاحية",
+            403
+        )
+
 
     if request.method == "GET":
 
@@ -3211,6 +4293,7 @@ def create_channel():
 
                 </div>
 
+
                 <div class="card">
 
                     <form method="POST">
@@ -3220,6 +4303,7 @@ def create_channel():
                             name="guild_id"
                             value="{{ guild_id }}"
                         >
+
 
                         <div class="form-group">
 
@@ -3236,6 +4320,7 @@ def create_channel():
 
                         </div>
 
+
                         <div class="form-group">
 
                             <label class="form-label">
@@ -3246,6 +4331,7 @@ def create_channel():
                                 class="select-box"
                                 name="type"
                             >
+
                                 <option value="0">
                                     روم نصي
                                 </option>
@@ -3253,9 +4339,11 @@ def create_channel():
                                 <option value="2">
                                     روم صوتي
                                 </option>
+
                             </select>
 
                         </div>
+
 
                         <button
                             class="btn btn-yellow"
@@ -3281,18 +4369,37 @@ def create_channel():
         )
     ).strip()
 
-    channel_type = int(
-        request.form.get(
-            "type",
-            "0"
+
+    try:
+
+        channel_type = int(
+            request.form.get(
+                "type",
+                "0"
+            )
         )
-    )
+
+    except (TypeError, ValueError):
+
+        return (
+            "نوع روم غير صالح",
+            400
+        )
+
 
     if not name:
-        return "اكتب اسم الروم", 400
+        return (
+            "اكتب اسم الروم",
+            400
+        )
+
 
     if channel_type not in (0, 2):
-        return "نوع روم غير صالح", 400
+        return (
+            "نوع روم غير صالح",
+            400
+        )
+
 
     response = discord_request(
         "POST",
@@ -3303,14 +4410,23 @@ def create_channel():
         }
     )
 
-    if not response:
-        return "فشل الاتصال بديسكورد", 500
 
-    if response.status_code not in (200, 201):
+    if not response:
+        return (
+            "فشل الاتصال بديسكورد",
+            500
+        )
+
+
+    if response.status_code not in (
+        200,
+        201
+    ):
         return (
             "فشل إنشاء الروم: "
             + response.text
         ), 400
+
 
     return redirect(
         url_for(
