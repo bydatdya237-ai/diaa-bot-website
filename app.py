@@ -4450,64 +4450,52 @@ def api_welcome_settings():
     }
 
 
-# =========================================================
 # Commands Page
 # =========================================================
 
-@app.route(
-    "/server/<guild_id>/commands"
-)
+@app.route("/server/<guild_id>/commands")
 def commands_page(guild_id):
+    guild_id = clean_id(guild_id)
 
-     guild_id = clean_id(guild_id)
+    if not user_can_control(guild_id):
+        return "ليس لديك صلاحية", 403
 
-     if not user_can_control(guild_id):
-         return "ليس لديك صلاحية", 403
+    guild = get_bot_guild(guild_id)
 
-     guild = get_bot_guild(guild_id)
+    if not guild:
+        return "السيرفر غير موجود", 404
 
-     if not guild:
-         return "السيرفر غير موجود", 404
+    raw_channels = get_bot_channels(guild_id)
+    channels = prepare_channels_for_picker(raw_channels)
 
-     raw_channels = get_bot_channels(
-         guild_id
-     )
+    roles = prepare_roles_for_picker(
+        get_bot_roles(guild_id)
+    )
 
-     channels = prepare_channels_for_picker(
-         raw_channels
-     )
-
-     roles = prepare_roles_for_picker(
-         get_bot_roles(guild_id)
-     )
-
-     commands = list(
-         commands_collection.find({})
-     )
-
+    commands = list(commands_collection.find({}))
 
     # =========================================================
     # DIAA BOT • PROFESSIONAL COMMAND MANAGER
-    # Flask+ Jinja2 + MongoDB
+    # Flask + Jinja2 + MongoDB
     # =========================================================
 
-saved_settings = {}
+    saved_settings = {}
 
-for setting in settings_collection.find({"guild_id": guild_id}):
-    name = setting.get("command_name") or setting.get("name")
+    for setting in settings_collection.find({"guild_id": guild_id}):
+        name = setting.get("command_name") or setting.get("name")
 
-    if not name:
-        continue
+        if not name:
+            continue
 
-    saved_settings[str(name)] = {
-        "enabled": bool(setting.get("enabled", True)),
-        "channel_ids": [
-            str(x) for x in (setting.get("channel_ids") or [])
-        ],
-        "role_ids": [
-            str(x) for x in (setting.get("role_ids") or [])
-        ],
-    }
+        saved_settings[str(name)] = {
+            "enabled": bool(setting.get("enabled", True)),
+            "channel_ids": [
+                str(x) for x in (setting.get("channel_ids") or [])
+            ],
+            "role_ids": [
+                str(x) for x in (setting.get("role_ids") or [])
+            ],
+        }
 
     return render_template_string(
         BASE_STYLE + r"""
@@ -4534,9 +4522,10 @@ for setting in settings_collection.find({"guild_id": guild_id}):
 }
 
 .commands-page [hidden] {
-
     display: none !important;
 }
+"""
+    )
 
 .commands-hero {
     position: relative;
