@@ -2178,6 +2178,492 @@ button {
     }
 }
 
+/* ضياء BOT — واجهة موحّدة */
+:root {
+    color-scheme: dark;
+    --page-bg: #0b0814;
+    --surface: rgba(23, 17, 38, .82);
+    --surface-strong: #171126;
+    --border: rgba(196, 181, 253, .15);
+    --accent: #a78bfa;
+    --accent-strong: #8b5cf6;
+    --accent-soft: rgba(139, 92, 246, .16);
+    --text-muted: #b8aecb;
+}
+
+html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 100px;
+}
+
+body {
+    color: #f8f5ff;
+    background:
+        radial-gradient(circle at 10% 2%, rgba(124, 58, 237, .24), transparent 32%),
+        radial-gradient(circle at 92% 18%, rgba(168, 85, 247, .14), transparent 30%),
+        radial-gradient(circle at 48% 100%, rgba(91, 33, 182, .13), transparent 38%),
+        var(--page-bg);
+    font-family: "Noto Sans Arabic", "Segoe UI", Tahoma, Arial, sans-serif;
+}
+
+body::before {
+    background:
+        linear-gradient(125deg, rgba(255,255,255,.018), transparent 42%, rgba(167,139,250,.035));
+}
+
+.topbar {
+    background: rgba(11, 8, 20, .78);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, .18);
+}
+
+.container {
+    max-width: 1320px;
+}
+
+.brand-icon {
+    color: #fff;
+    background: linear-gradient(145deg, #8b5cf6, #6d28d9);
+    box-shadow: 0 8px 24px rgba(139, 92, 246, .3);
+}
+
+.gradient-text {
+    background: linear-gradient(100deg, #ddd6fe 8%, #a78bfa 52%, #e9d5ff 96%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.hero h1 {
+    letter-spacing: -.035em;
+}
+
+.hero p,
+.small,
+.server-id {
+    color: var(--text-muted);
+}
+
+.card,
+.server-card,
+.command-card {
+    background: linear-gradient(145deg, rgba(29, 22, 47, .88), rgba(17, 13, 29, .91));
+    border: 1px solid var(--border);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .2);
+    backdrop-filter: blur(18px);
+}
+
+.card,
+.server-card,
+.command-card,
+.section-sidebar,
+.module-nav a,
+.btn {
+    transition: border-color .2s ease, background-color .2s ease, transform .2s ease, box-shadow .2s ease;
+}
+
+.card:hover,
+.server-card:hover,
+.command-card:hover {
+    border-color: rgba(196, 181, 253, .3);
+}
+
+.btn,
+.btn-yellow {
+    color: #fff;
+    border: 1px solid rgba(221, 214, 254, .22);
+    background: linear-gradient(135deg, #7c3aed, #9f67f6);
+    box-shadow: 0 8px 22px rgba(124, 58, 237, .2);
+}
+
+.btn:hover,
+.btn-yellow:hover {
+    color: #fff;
+    background: linear-gradient(135deg, #6d28d9, #8b5cf6);
+    box-shadow: 0 12px 28px rgba(124, 58, 237, .3);
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    color: #e9ddff;
+    background: rgba(167, 139, 250, .1);
+    border-color: rgba(196, 181, 253, .2);
+    box-shadow: none;
+}
+
+.btn-secondary:hover {
+    color: #fff;
+    background: rgba(167, 139, 250, .18);
+}
+
+.btn-danger {
+    color: #fecaca;
+    background: rgba(220, 38, 38, .14);
+    border-color: rgba(248, 113, 113, .28);
+    box-shadow: none;
+}
+
+.btn-danger:hover {
+    background: rgba(220, 38, 38, .24);
+}
+
+.status-yellow,
+.status-blue {
+    color: #e9ddff;
+    background: rgba(139, 92, 246, .17);
+    border-color: rgba(196, 181, 253, .22);
+}
+
+.badge-admin {
+    color: #f0e8ff;
+    background: rgba(139, 92, 246, .2);
+    border-color: rgba(196, 181, 253, .24);
+}
+
+.badge-normal {
+    color: #d8c9f5;
+    background: rgba(255, 255, 255, .055);
+    border-color: rgba(196, 181, 253, .14);
+}
+
+.input,
+.select-box,
+.textarea,
+.picker-search {
+    color: #f8f5ff;
+    background: rgba(9, 7, 17, .66);
+    border-color: rgba(196, 181, 253, .18);
+}
+
+.input:focus,
+.select-box:focus,
+.textarea:focus,
+.picker-search:focus {
+    border-color: rgba(167, 139, 250, .7);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, .15);
+    outline: none;
+}
+
+select option {
+    color: #f8f5ff;
+    background: #171126;
+}
+
+.server-identity {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.server-avatar {
+    width: 58px;
+    height: 58px;
+    flex: 0 0 58px;
+    border-radius: 18px;
+    object-fit: cover;
+    border: 1px solid rgba(221, 214, 254, .2);
+}
+
+.server-avatar-fallback {
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-weight: 900;
+    font-size: 24px;
+    background: linear-gradient(145deg, #8b5cf6, #5b21b6);
+}
+
+.server-card {
+    min-width: 0;
+}
+
+.server-availability {
+    margin-top: 14px;
+}
+
+.server-card .server-id {
+    margin-top: 6px;
+    direction: ltr;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+.summary-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 22px;
+    padding: 16px 20px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: rgba(23, 17, 38, .58);
+}
+
+.summary-count {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.summary-count strong {
+    color: #e9ddff;
+    font-size: 26px;
+}
+
+.server-workspace {
+    display: grid;
+    grid-template-columns: 248px minmax(0, 1fr);
+    gap: 22px;
+    align-items: start;
+}
+
+.section-sidebar {
+    position: sticky;
+    top: 92px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    background: rgba(19, 14, 32, .8);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .18);
+    backdrop-filter: blur(18px);
+}
+
+.sidebar-heading {
+    display: grid;
+    gap: 5px;
+    padding: 7px 8px 15px;
+    border-bottom: 1px solid var(--border);
+    overflow-wrap: anywhere;
+}
+
+.sidebar-eyebrow {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.sidebar-heading strong {
+    color: #f4eeff;
+    font-size: 15px;
+}
+
+.section-nav {
+    display: grid;
+    gap: 6px;
+    margin-top: 13px;
+}
+
+.section-nav a,
+.module-nav a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid transparent;
+    border-radius: 13px;
+    color: #d6cde5;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.section-nav a:hover,
+.module-nav a:hover {
+    color: #fff;
+    background: rgba(167, 139, 250, .1);
+    border-color: rgba(196, 181, 253, .13);
+}
+
+.section-nav a.active,
+.module-nav a.active {
+    color: #f5f0ff;
+    background: linear-gradient(100deg, rgba(124, 58, 237, .24), rgba(167, 139, 250, .1));
+    border-color: rgba(196, 181, 253, .22);
+}
+
+.sidebar-note {
+    margin-top: 15px;
+    padding: 12px;
+    border-radius: 13px;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, .035);
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+.server-sections {
+    display: grid;
+    gap: 18px;
+    min-width: 0;
+}
+
+.server-section {
+    scroll-margin-top: 100px;
+}
+
+.module-nav {
+    display: flex;
+    gap: 8px;
+    margin: 0 auto 20px;
+    padding: 8px;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: rgba(19, 14, 32, .7);
+    scrollbar-width: thin;
+}
+
+.module-nav a {
+    flex: 0 0 auto;
+    justify-content: center;
+}
+
+.command-toolbar {
+    display: grid;
+    gap: 14px;
+}
+
+.command-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.command-filter {
+    display: grid;
+    gap: 7px;
+}
+
+.command-result-count {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.command-state {
+    display: inline-flex;
+    align-items: center;
+    min-height: 25px;
+    margin-inline-start: 6px;
+    padding: 3px 9px;
+    border: 1px solid rgba(167, 139, 250, .22);
+    border-radius: 999px;
+    color: #e9ddff;
+    background: rgba(139, 92, 246, .14);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.command-state.is-disabled {
+    color: #d5cadf;
+    background: rgba(255, 255, 255, .055);
+    border-color: rgba(255, 255, 255, .12);
+}
+
+.command-description {
+    margin-top: 9px;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.8;
+}
+
+.command-empty {
+    display: none;
+    padding: 18px;
+    color: var(--text-muted);
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+}
+
+#commandNoMatches:not([hidden]) {
+    display: block;
+}
+
+.command-card[hidden],
+.command-group[hidden] {
+    display: none !important;
+}
+
+:focus-visible {
+    outline: 3px solid rgba(196, 181, 253, .8);
+    outline-offset: 3px;
+}
+
+@media (max-width: 980px) {
+    .server-workspace {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .section-sidebar {
+        position: static;
+    }
+
+    .section-nav {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    html {
+        scroll-padding-top: 80px;
+    }
+
+    .summary-strip {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 15px;
+    }
+
+    .section-sidebar {
+        padding: 12px;
+    }
+
+    .section-nav {
+        display: flex;
+        overflow-x: auto;
+        padding-bottom: 3px;
+        scrollbar-width: thin;
+    }
+
+    .section-nav a {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    .module-nav {
+        margin-bottom: 14px;
+    }
+
+    .module-nav a {
+        min-height: 40px;
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    .command-filters {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .server-avatar {
+        width: 50px;
+        height: 50px;
+        flex-basis: 50px;
+        border-radius: 15px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
 </style>
 """
 
@@ -2408,7 +2894,7 @@ def dashboard():
 
         <div class="container">
 
-            <div class="hero">
+            <div class="hero dashboard-hero">
 
                 <h1>
                     أهلاً بك،
@@ -2426,6 +2912,16 @@ def dashboard():
 
             </div>
 
+            <div class="summary-strip">
+                <div class="summary-count">
+                    <span class="small">السيرفرات المتاحة لإدارتها</span>
+                    <strong>{{ visible_guilds|length }}</strong>
+                </div>
+                <span class="small">
+                    تظهر هنا السيرفرات التي يتوفر فيها البوت ولديك صلاحية إدارتها.
+                </span>
+            </div>
+
             {% if visible_guilds %}
 
             <div class="grid">
@@ -2434,15 +2930,35 @@ def dashboard():
 
                 <div class="server-card">
 
-                    <div class="server-name">
-                        {{ guild.get(
-                            "name",
-                            "بدون اسم"
-                        ) }}
+                    <div class="server-identity">
+                        {% if guild.get("icon") %}
+                        <img
+                            class="server-avatar"
+                            src="https://cdn.discordapp.com/icons/{{ guild.get('id') }}/{{ guild.get('icon') }}.png?size=128"
+                            alt=""
+                            loading="lazy"
+                        >
+                        {% else %}
+                        <div class="server-avatar server-avatar-fallback" aria-hidden="true">
+                            ض
+                        </div>
+                        {% endif %}
+
+                        <div style="min-width:0">
+                            <div class="server-name">
+                                {{ guild.get(
+                                    "name",
+                                    "بدون اسم"
+                                ) }}
+                            </div>
+                            <div class="server-id">
+                                {{ guild.get("id") }}
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="server-id">
-                        {{ guild.get("id") }}
+                    <div class="server-availability">
+                        <span class="status status-blue">متاح للإدارة</span>
                     </div>
 
                     <a
@@ -2642,7 +3158,7 @@ def server_page(guild_id):
 
         <div class="container">
 
-            <div class="hero">
+            <div class="hero" id="overview">
 
                 <h1>
                     إدارة
@@ -2659,10 +3175,50 @@ def server_page(guild_id):
 
             </div>
 
+            <div class="server-workspace">
+                <aside class="section-sidebar" aria-label="أقسام إدارة السيرفر">
+                    <div class="sidebar-heading">
+                        <span class="sidebar-eyebrow">السيرفر الحالي</span>
+                        <strong>{{ guild.get("name", "السيرفر") }}</strong>
+                    </div>
+
+                    <nav class="section-nav">
+                        <a class="active" href="#overview">
+                            <span aria-hidden="true">⌂</span>
+                            <span>نظرة عامة</span>
+                        </a>
+                        <a href="#economy-section">
+                            <span aria-hidden="true">◈</span>
+                            <span>الاقتصاد</span>
+                        </a>
+                        <a href="#welcome-section">
+                            <span aria-hidden="true">✦</span>
+                            <span>الترحيب</span>
+                        </a>
+                        <a href="{{ url_for('commands_page', guild_id=guild_id) }}">
+                            <span aria-hidden="true">⚙</span>
+                            <span>الأوامر والصلاحيات</span>
+                        </a>
+                        <a href="{{ url_for('aliases_page', guild_id=guild_id) }}">
+                            <span aria-hidden="true">⌁</span>
+                            <span>اختصارات الأوامر</span>
+                        </a>
+                        <a href="{{ url_for('create_channel', guild_id=guild_id) }}">
+                            <span aria-hidden="true">＋</span>
+                            <span>إنشاء روم</span>
+                        </a>
+                    </nav>
+
+                    <div class="sidebar-note">
+                        هذه الأقسام تعرض الإعدادات والعمليات المتاحة حاليًا في الموقع.
+                    </div>
+                </aside>
+
+                <main class="server-sections">
 
             <!-- الاقتصاد -->
 
-            <div class="card">
+            <div class="card server-section" id="economy-section">
 
                 <div class="card-title">
 
@@ -2812,7 +3368,7 @@ def server_page(guild_id):
 
             <!-- نظام الترحيب -->
 
-            <div class="card">
+            <div class="card server-section" id="welcome-section">
 
                 <div class="card-title">
 
@@ -3013,7 +3569,7 @@ def server_page(guild_id):
 
             <!-- إدارة الأوامر -->
 
-            <div class="card">
+            <div class="card server-section" id="commands-section">
 
                 <div class="card-title">
 
@@ -3051,7 +3607,7 @@ def server_page(guild_id):
 
             <!-- اختصارات -->
 
-            <div class="card">
+            <div class="card server-section" id="aliases-section">
 
                 <div class="card-title">
 
@@ -3086,6 +3642,8 @@ def server_page(guild_id):
 
             </div>
 
+                </main>
+            </div>
 
             <div class="footer">
                 ضياء BOT • لوحة الإدارة
@@ -4017,6 +4575,21 @@ def commands_page(guild_id):
 
         <div class="container">
 
+            <nav class="module-nav" aria-label="أقسام إدارة السيرفر">
+                <a href="{{ url_for('server_page', guild_id=guild_id) }}">
+                    نظرة عامة
+                </a>
+                <a class="active" aria-current="page" href="{{ url_for('commands_page', guild_id=guild_id) }}">
+                    الأوامر والصلاحيات
+                </a>
+                <a href="{{ url_for('aliases_page', guild_id=guild_id) }}">
+                    اختصارات الأوامر
+                </a>
+                <a href="{{ url_for('create_channel', guild_id=guild_id) }}">
+                    إنشاء روم
+                </a>
+            </nav>
+
             <div class="hero">
 
                 <h1>
@@ -4034,15 +4607,36 @@ def commands_page(guild_id):
             </div>
 
 
-            <div class="card">
-
+            <div class="card command-toolbar">
                 <input
                     class="input"
                     id="commandSearch"
-                    placeholder="🔎 ابحث عن أمر..."
+                    type="search"
+                    aria-label="ابحث عن أمر"
+                    placeholder="🔎 ابحث باسم الأمر أو وصفه..."
                     oninput="filterCommands()"
                 >
 
+                <div class="command-filters">
+                    <label class="command-filter">
+                        <span class="form-label">نوع الأمر</span>
+                        <select id="commandKindFilter" class="select-box" onchange="filterCommands()">
+                            <option value="all">كل الأوامر</option>
+                            <option value="general">الأوامر العامة</option>
+                            <option value="admin">الأوامر الإدارية</option>
+                        </select>
+                    </label>
+                    <label class="command-filter">
+                        <span class="form-label">حالة الأمر</span>
+                        <select id="commandStatusFilter" class="select-box" onchange="filterCommands()">
+                            <option value="all">كل الحالات</option>
+                            <option value="enabled">مفعّل</option>
+                            <option value="disabled">معطّل</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div id="commandResultCount" class="command-result-count" aria-live="polite"></div>
             </div>
 
 
@@ -4087,7 +4681,9 @@ def commands_page(guild_id):
 
             <div
                 class="command-card"
-                data-command="{{ command_name|lower }}"
+                data-command="{{ (command_name ~ ' ' ~ (command.get('description') or ''))|lower }}"
+                data-kind="{% if command.get('is_admin_command') %}admin{% else %}general{% endif %}"
+                data-enabled="{% if saved_enabled %}enabled{% else %}disabled{% endif %}"
             >
 
                 <div class="command-head">
@@ -4097,6 +4693,12 @@ def commands_page(guild_id):
                         <div class="command-name">
                             -{{ command_name }}
                         </div>
+
+                        {% if command.get("description") %}
+                        <div class="command-description">
+                            {{ command.get("description") }}
+                        </div>
+                        {% endif %}
 
                         <div
                             style="margin-top:7px"
@@ -4128,6 +4730,13 @@ def commands_page(guild_id):
 
                             {% endif %}
 
+                            <span
+                                class="command-state {% if not saved_enabled %}is-disabled{% endif %}"
+                                data-command-status
+                            >
+                                {% if saved_enabled %}مفعّل{% else %}معطّل{% endif %}
+                            </span>
+
                         </div>
 
                     </div>
@@ -4138,6 +4747,7 @@ def commands_page(guild_id):
                         <input
                             type="checkbox"
                             class="command-enabled"
+                            onchange="updateCommandState(this)"
                             {% if saved_enabled %}
                             checked
                             {% endif %}
@@ -4421,6 +5031,10 @@ def commands_page(guild_id):
 
             </div>
 
+            <div id="commandNoMatches" class="command-empty" hidden>
+                لا توجد أوامر تطابق البحث والفلاتر الحالية.
+            </div>
+
 
             {% if not commands %}
 
@@ -4452,23 +5066,120 @@ def commands_page(guild_id):
                     .toLowerCase()
                     .trim();
 
+            const kind =
+                document
+                    .getElementById("commandKindFilter")
+                    .value;
 
-            document
-                .querySelectorAll(
+            const status =
+                document
+                    .getElementById("commandStatusFilter")
+                    .value;
+
+            const cards =
+                [
+                    ...document.querySelectorAll(
+                        ".command-card"
+                    )
+                ];
+
+            let visibleCount = 0;
+
+            cards.forEach(card => {
+
+                const name =
+                    card.dataset.command
+                    || "";
+
+                const currentStatus =
+                    card.querySelector(
+                        ".command-enabled"
+                    ).checked
+                        ? "enabled"
+                        : "disabled";
+
+                const matches =
+                    name.includes(value)
+                    && (
+                        kind === "all"
+                        || card.dataset.kind === kind
+                    )
+                    && (
+                        status === "all"
+                        || currentStatus === status
+                    );
+
+                card.hidden = !matches;
+
+                if (matches) {
+                    visibleCount += 1;
+                }
+            });
+
+            const count =
+                document.getElementById(
+                    "commandResultCount"
+                );
+
+            if (count) {
+                count.textContent =
+                    "عرض "
+                    + visibleCount
+                    + " من "
+                    + cards.length
+                    + " أمر";
+            }
+
+            const empty =
+                document.getElementById(
+                    "commandNoMatches"
+                );
+
+            if (empty) {
+                empty.hidden =
+                    visibleCount > 0
+                    || cards.length === 0;
+            }
+        }
+
+
+        function updateCommandState(input) {
+
+            const card =
+                input.closest(
                     ".command-card"
-                )
-                .forEach(card => {
+                );
 
-                    const name =
-                        card.dataset.command
-                        || "";
+            if (!card) {
+                return;
+            }
 
-                    card.style.display =
-                        name.includes(value)
-                            ? ""
-                            : "none";
+            const enabled =
+                input.checked;
 
-                });
+            card.dataset.enabled =
+                enabled
+                    ? "enabled"
+                    : "disabled";
+
+            const status =
+                card.querySelector(
+                    "[data-command-status]"
+                );
+
+            if (status) {
+                status.textContent =
+                    enabled
+                        ? "مفعّل"
+                        : "معطّل";
+
+                status.classList.toggle(
+                    "is-disabled",
+                    !enabled
+                );
+            }
+
+            filterCommands();
         }
 
 
@@ -4760,7 +5471,7 @@ def commands_page(guild_id):
                         "✓ تم الحفظ";
 
                     button.style.background =
-                        "linear-gradient(135deg,#2563eb,#38bdf8)";
+                        "linear-gradient(135deg,#7c3aed,#a78bfa)";
 
                     setTimeout(() => {
 
@@ -4833,6 +5544,7 @@ def commands_page(guild_id):
 
 
         updateCounts();
+        filterCommands();
 
         </script>
         """,
@@ -5209,6 +5921,21 @@ def aliases_page(guild_id):
 
 
         <div class="container">
+
+            <nav class="module-nav" aria-label="أقسام إدارة السيرفر">
+                <a href="{{ url_for('server_page', guild_id=guild_id) }}">
+                    نظرة عامة
+                </a>
+                <a href="{{ url_for('commands_page', guild_id=guild_id) }}">
+                    الأوامر والصلاحيات
+                </a>
+                <a class="active" aria-current="page" href="{{ url_for('aliases_page', guild_id=guild_id) }}">
+                    اختصارات الأوامر
+                </a>
+                <a href="{{ url_for('create_channel', guild_id=guild_id) }}">
+                    إنشاء روم
+                </a>
+            </nav>
 
             <div class="hero">
 
