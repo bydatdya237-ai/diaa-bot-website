@@ -4509,7 +4509,6 @@ for setting in settings_collection.find({"guild_id": guild_id}):
         ],
     }
 
-
 return render_template_string(
     BASE_STYLE + r"""
 <style>
@@ -4537,6 +4536,8 @@ return render_template_string(
 .commands-page *::after {
     box-sizing: border-box;
 }
+"""
+)
 
 .commands-page [hidden] {
     display: none !important;
