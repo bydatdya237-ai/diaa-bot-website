@@ -4536,8 +4536,6 @@ return render_template_string(
 .commands-page *::after {
     box-sizing: border-box;
 }
-"""
-)
 
 .commands-page [hidden] {
     display: none !important;
