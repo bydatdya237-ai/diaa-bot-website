@@ -4486,32 +4486,31 @@ def commands_page(guild_id):
     )
 
 
-# =========================================================
-# DIAA BOT • PROFESSIONAL COMMAND MANAGER
-# Flask + Jinja2 + MongoDB
-# =========================================================
+    # =========================================================
+    # DIAA BOT • PROFESSIONAL COMMAND MANAGER
+    # Flask + Jinja2 + MongoDB
+    # =========================================================
 
-saved_settings = {}
+    saved_settings = {}
 
-for setting in settings_collection.find({"guild_id": guild_id}):
-    name = setting.get("command_name") or setting.get("name")
+    for setting in settings_collection.find({"guild_id": guild_id}):
+        name = setting.get("command_name") or setting.get("name")
 
-    if not name:
-        continue
+        if not name:
+            continue
 
-    saved_settings[str(name)] = {
-        "enabled": bool(setting.get("enabled", True)),
-        "channel_ids": [
-            str(x) for x in (setting.get("channel_ids") or [])
-        ],
-        "role_ids": [
-            str(x) for x in (setting.get("role_ids") or [])
-        ],
-    }
+        saved_settings[str(name)] = {
+            "enabled": bool(setting.get("enabled", True)),
+            "channel_ids": [
+                str(x) for x in (setting.get("channel_ids") or [])
+            ],
+            "role_ids": [
+                str(x) for x in (setting.get("role_ids") or [])
+            ],
+        }
 
-
-return render_template_string(
-    BASE_STYLE + r"""
+    return render_template_string(
+        BASE_STYLE + r"""
 <style>
 :root {
     --cmd-bg: #101114;
@@ -4524,6 +4523,10 @@ return render_template_string(
     --cmd-red: #f87171;
     --cmd-accent: #a1a1aa;
 }
+</style>
+"""
+        # أبقِ بقية قالب HTML الأصلي هنا
+    )
 
 .commands-page {
     color: var(--cmd-text);
