@@ -4509,6 +4509,7 @@ def commands_page(guild_id):
             ],
         }
 
+
     return render_template_string(
         BASE_STYLE + r"""
 <style>
@@ -4523,10 +4524,6 @@ def commands_page(guild_id):
     --cmd-red: #f87171;
     --cmd-accent: #a1a1aa;
 }
-</style>
-"""
-        # أبقِ بقية قالب HTML الأصلي هنا
-    )
 
 .commands-page {
     color: var(--cmd-text);
@@ -4538,6 +4535,9 @@ def commands_page(guild_id):
 }
 
 .commands-page [hidden] {
+    display: none !important;
+}
+
     display: none !important;
 }
 
