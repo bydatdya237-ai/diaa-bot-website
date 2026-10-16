@@ -4509,35 +4509,32 @@ for setting in settings_collection.find({"guild_id": guild_id}):
         ],
     }
 
-return render_template_string(
-    BASE_STYLE + r"""
+    return render_template_string(
+        BASE_STYLE + r"""
 <style>
 :root {
-    --cmd-bg: #0b0912;
-    --cmd-card: #15111f;
-    --cmd-card-hover: #1b1529;
-    --cmd-border: rgba(182,108,255,.20);
-    --cmd-purple: #b66cff;
-    --cmd-purple-light: #d7adff;
-    --cmd-text: #f5efff;
-    --cmd-muted: #a69ab8;
-    --cmd-green: #48dfad;
-    --cmd-red: #ff6685;
+    --cmd-bg: #101114;
+    --cmd-card: #191a20;
+    --cmd-card2: #202127;
+    --cmd-border: #32333b;
+    --cmd-text: #f4f4f5;
+    --cmd-muted: #a1a1aa;
+    --cmd-green: #4ade80;
+    --cmd-red: #f87171;
+    --cmd-accent: #a1a1aa;
 }
 
 .commands-page {
-    direction: rtl;
     color: var(--cmd-text);
-    padding: 18px 0 35px;
+    padding-bottom: 35px;
 }
 
-.commands-page *,
-.commands-page *::before,
-.commands-page *::after {
+.commands-page * {
     box-sizing: border-box;
 }
 
 .commands-page [hidden] {
+
     display: none !important;
 }
 
