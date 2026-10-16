@@ -4524,8 +4524,7 @@ def commands_page(guild_id):
 .commands-page [hidden] {
     display: none !important;
 }
-"""
-    )
+
 
 .commands-hero {
     position: relative;
