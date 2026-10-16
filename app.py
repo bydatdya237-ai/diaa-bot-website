@@ -4459,31 +4459,31 @@ def api_welcome_settings():
 )
 def commands_page(guild_id):
 
-    guild_id = clean_id(guild_id)
+     guild_id = clean_id(guild_id)
 
-    if not user_can_control(guild_id):
-        return "ليس لديك صلاحية", 403
+     if not user_can_control(guild_id):
+         return "ليس لديك صلاحية", 403
 
-    guild = get_bot_guild(guild_id)
+     guild = get_bot_guild(guild_id)
 
-    if not guild:
-        return "السيرفر غير موجود", 404
+     if not guild:
+         return "السيرفر غير موجود", 404
 
-    raw_channels = get_bot_channels(
-        guild_id
-    )
+     raw_channels = get_bot_channels(
+         guild_id
+     )
 
-    channels = prepare_channels_for_picker(
-        raw_channels
-    )
+     channels = prepare_channels_for_picker(
+         raw_channels
+     )
 
-    roles = prepare_roles_for_picker(
-        get_bot_roles(guild_id)
-    )
+     roles = prepare_roles_for_picker(
+         get_bot_roles(guild_id)
+     )
 
-    commands = list(
-        commands_collection.find({})
-    )
+     commands = list(
+         commands_collection.find({})
+     )
 
 
     # =========================================================
