@@ -2,7 +2,7 @@ import os
 import time
 import secrets
 from urllib.parse import urlencode
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from flask import (
@@ -40,15 +40,6 @@ DISCORD_API = "https://discord.com/api/v10"
 
 PORT = int(os.getenv("PORT", "8080"))
 
-OWNER_ONLY_COMMANDS = frozenset({
-    "تصفير",
-    "ضيف",
-    "اعطي",
-    "سحب",
-    "اسحب",
-    "هاتمصروف",
-})
-
 
 if not CLIENT_ID:
     raise RuntimeError("DISCORD_CLIENT_ID غير موجود")
@@ -67,15 +58,20 @@ if not MONGO_URI:
 # Flask
 # =========================================================
 
+
 app = Flask(__name__)
 
-app.secret_key = os.getenv(
-    "FLASK_SECRET_KEY",
-    secrets.token_hex(32)
-)
+app.secret_key = os.getenv("FLASK_SECRET_KEY")
+
+if not app.secret_key:
+    raise RuntimeError(
+        "يجب ضبط FLASK_SECRET_KEY في Railway"
+    )
 
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 
 
 # =========================================================
@@ -162,19 +158,6 @@ def discord_request(
 
 def clean_id(value):
     return str(value).strip()
-
-
-def is_owner_only_command(command_name):
-    normalized = (
-        str(command_name or "")
-        .strip()
-        .replace("ـ", "")
-        .replace(" ", "")
-        .replace("-", "")
-        .replace("_", "")
-    )
-
-    return normalized in OWNER_ONLY_COMMANDS
 
 
 def is_forced_economy_guild(guild_id):
@@ -1260,7 +1243,7 @@ button {
 
     border-radius: 22px;
 
-    padding: 0;
+    padding: 18px;
 
     margin-bottom: 14px;
 
@@ -1272,172 +1255,6 @@ button {
 .command-card:hover {
     border-color:
         rgba(56,189,248,.2);
-}
-
-.command-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 13px 16px;
-}
-
-.command-details {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.command-summary {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 38px;
-    cursor: pointer;
-    list-style: none;
-}
-
-.command-summary::-webkit-details-marker {
-    display: none;
-}
-
-.command-summary::after {
-    content: "⌄";
-    flex: 0 0 auto;
-    margin-inline-start: auto;
-    color: #a78bfa;
-    font-size: 20px;
-    transition: transform .18s ease;
-}
-
-.command-details[open] > .command-summary::after {
-    transform: rotate(180deg);
-}
-
-.command-summary-line {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-    flex-wrap: wrap;
-}
-
-.command-settings-panel {
-    padding: 14px 2px 2px;
-    border-top: 1px solid rgba(255,255,255,.08);
-    margin-top: 12px;
-}
-
-.command-toggle {
-    flex: 0 0 auto;
-    margin-top: 5px;
-}
-
-.channel-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-}
-
-.channel-heading .form-label {
-    margin-bottom: 0;
-}
-
-.all-channels-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    color: #c4b5fd;
-    font-size: 12px;
-    font-weight: 800;
-    cursor: pointer;
-}
-
-.all-channels-toggle input {
-    accent-color: #8b5cf6;
-}
-
-.all-channels-toggle input:disabled {
-    cursor: not-allowed;
-}
-
-.channel-scope-note {
-    margin-top: 7px;
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: 1.6;
-}
-
-.picker.is-all-selected {
-    opacity: .72;
-}
-
-.command-alias-panel {
-    display: grid;
-    gap: 10px;
-    margin-top: 16px;
-    padding: 14px;
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 15px;
-    background: rgba(3,12,24,.42);
-}
-
-.command-alias-title {
-    font-size: 13px;
-    font-weight: 900;
-}
-
-.command-alias-form {
-    display: flex;
-    gap: 8px;
-}
-
-.command-alias-form .input {
-    min-width: 0;
-    padding: 10px 12px;
-}
-
-.command-alias-list {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 7px;
-}
-
-.command-alias-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 7px 5px 10px;
-    border: 1px solid rgba(167,139,250,.2);
-    border-radius: 999px;
-    color: #e9ddff;
-    background: rgba(139,92,246,.1);
-    font-size: 12px;
-}
-
-.command-alias-item code {
-    direction: ltr;
-    unicode-bidi: isolate;
-    font-family: inherit;
-    font-weight: 900;
-}
-
-.command-alias-delete {
-    display: inline-grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    border: 0;
-    border-radius: 50%;
-    color: #fecaca;
-    background: rgba(239,68,68,.13);
-    cursor: pointer;
-}
-
-.command-alias-delete:hover {
-    background: rgba(239,68,68,.25);
 }
 
 .command-head {
@@ -2273,22 +2090,9 @@ button {
     }
 
     .command-card {
-        padding: 0;
+        padding: 14px;
 
         border-radius: 17px;
-    }
-
-    .command-row {
-        gap: 8px;
-        padding: 12px;
-    }
-
-    .command-summary-line {
-        align-items: flex-start;
-    }
-
-    .command-alias-form {
-        flex-direction: column;
     }
 
     .command-head {
@@ -2955,9 +2759,9 @@ def home():
 # تسجيل الدخول
 # =========================================================
 
+
 @app.route("/login")
 def login():
-
     params = {
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
@@ -2973,22 +2777,17 @@ def login():
 
 @app.route("/callback")
 def callback():
-
     code = request.args.get("code")
 
     if not code:
-        return redirect(
-            url_for("home")
-        )
+        return redirect(url_for("home"))
 
     data = {
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "grant_type":
-            "authorization_code",
+        "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri":
-            REDIRECT_URI,
+        "redirect_uri": REDIRECT_URI,
     }
 
     try:
@@ -3004,14 +2803,21 @@ def callback():
         return "فشل تسجيل الدخول", 400
 
     token_data = response.json()
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
 
-    session["access_token"] = token_data.get(
-        "access_token"
-    )
+    if not access_token:
+        return "لم يتم استلام رمز تسجيل الدخول", 400
 
-    return redirect(
-        url_for("dashboard")
-    )
+    session.clear()
+    session["access_token"] = access_token
+
+    if refresh_token:
+        session["refresh_token"] = refresh_token
+
+    session.permanent = True
+
+    return redirect(url_for("dashboard"))
 
 
 # =========================================================
@@ -4651,15 +4457,11 @@ def api_welcome_settings():
     }
 
 
-# =========================================================
 # Commands Page
 # =========================================================
 
-@app.route(
-    "/server/<guild_id>/commands"
-)
+@app.route("/server/<guild_id>/commands")
 def commands_page(guild_id):
-
     guild_id = clean_id(guild_id)
 
     if not user_can_control(guild_id):
@@ -4670,1392 +4472,1613 @@ def commands_page(guild_id):
     if not guild:
         return "السيرفر غير موجود", 404
 
-    raw_channels = get_bot_channels(
-        guild_id
-    )
-
-    channels = prepare_channels_for_picker(
-        raw_channels
-    )
+    raw_channels = get_bot_channels(guild_id)
+    channels = prepare_channels_for_picker(raw_channels)
 
     roles = prepare_roles_for_picker(
         get_bot_roles(guild_id)
     )
 
-    commands = list(
-        commands_collection.find({})
-    )
+    commands = list(commands_collection.find({}))
 
-    for command in commands:
-        command_name = (
-            command.get("name")
-            or command.get("command_name")
-            or ""
-        )
-
-        command["is_admin_command"] = (
-            is_owner_only_command(command_name)
-        )
-
-
-    # =====================================================
-    # جلب كل إعدادات الأوامر لهذا السيرفر
-    # =====================================================
+    # =========================================================
+    # DIAA BOT • PROFESSIONAL COMMAND MANAGER
+    # Flask + Jinja2 + MongoDB
+    # =========================================================
 
     saved_settings = {}
 
-    for setting in settings_collection.find({
-        "guild_id":
-            guild_id
-    }):
-
-        name = (
-            setting.get(
-                "command_name"
-            )
-            or
-            setting.get(
-                "name"
-            )
-        )
+    for setting in settings_collection.find({"guild_id": guild_id}):
+        name = setting.get("command_name") or setting.get("name")
 
         if not name:
             continue
 
-        saved_settings[
-            name
-        ] = {
-            "enabled":
-                bool(
-                    setting.get(
-                        "enabled",
-                        True
-                    )
-                ),
-
-            "channel_ids":
-                [
-                    str(x)
-                    for x in setting.get(
-                        "channel_ids",
-                        []
-                    )
-                ],
-
-            "role_ids":
-                [
-                    str(x)
-                    for x in setting.get(
-                        "role_ids",
-                        []
-                    )
-                ],
+        saved_settings[str(name)] = {
+            "enabled": bool(setting.get("enabled", True)),
+            "channel_ids": [
+                str(x) for x in (setting.get("channel_ids") or [])
+            ],
+            "role_ids": [
+                str(x) for x in (setting.get("role_ids") or [])
+            ],
         }
 
+    return render_template_string(
+        BASE_STYLE + r"""
+<style>
+:root {
+    --cmd-bg: #101114;
+    --cmd-card: #191a20;
+    --cmd-card2: #202127;
+    --cmd-border: #32333b;
+    --cmd-text: #f4f4f5;
+    --cmd-muted: #a1a1aa;
+    --cmd-green: #4ade80;
+    --cmd-red: #f87171;
+    --cmd-accent: #a1a1aa;
+}
 
-    available_channel_ids = {
-        str(channel.get("id"))
-        for channel in channels
-        if channel.get("id") is not None
+.commands-page {
+    color: var(--cmd-text);
+    padding-bottom: 35px;
+}
+
+.commands-page * {
+    box-sizing: border-box;
+}
+
+.commands-page [hidden] {
+    display: none !important;
+}
+
+
+.commands-hero {
+    position: relative;
+    overflow: hidden;
+    padding: 27px;
+    margin-bottom: 20px;
+    border-radius: 24px;
+    border: 1px solid var(--cmd-border);
+    background:
+        radial-gradient(
+            circle at 5% 10%,
+            rgba(182,108,255,.22),
+            transparent 38%
+        ),
+        linear-gradient(135deg, #1c122b, #100d18 70%);
+    box-shadow: 0 14px 45px rgba(0,0,0,.22);
+}
+
+.commands-hero::after {
+    content: "";
+    position: absolute;
+    left: -45px;
+    bottom: -100px;
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    background: rgba(182,108,255,.08);
+    filter: blur(8px);
+    pointer-events: none;
+}
+
+.commands-hero-content {
+    position: relative;
+    z-index: 1;
+}
+
+.commands-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 11px;
+    border-radius: 999px;
+    border: 1px solid rgba(182,108,255,.30);
+    background: rgba(182,108,255,.09);
+    color: var(--cmd-purple-light);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.commands-hero h2 {
+    margin: 15px 0 8px;
+    color: #fff;
+    font-size: clamp(25px, 5vw, 36px);
+    font-weight: 900;
+    letter-spacing: -.7px;
+}
+
+.commands-hero p {
+    margin: 0;
+    max-width: 650px;
+    color: var(--cmd-muted);
+    font-size: 13px;
+    line-height: 1.9;
+}
+
+.commands-hero-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 9px;
+    margin-top: 19px;
+}
+
+.commands-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: #c5b6d9;
+    font-size: 11px;
+}
+
+.commands-live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--cmd-green);
+    box-shadow: 0 0 12px rgba(72,223,173,.7);
+}
+
+.commands-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.commands-stat {
+    min-width: 0;
+    padding: 17px;
+    border: 1px solid var(--cmd-border);
+    border-radius: 17px;
+    background: linear-gradient(145deg, #191323, #110e19);
+}
+
+.commands-stat-label {
+    color: var(--cmd-muted);
+    font-size: 11px;
+    margin-bottom: 9px;
+}
+
+.commands-stat-number {
+    color: #fff;
+    font-size: 27px;
+    font-weight: 900;
+    line-height: 1.2;
+}
+
+.commands-stat-number.purple {
+    color: var(--cmd-purple-light);
+}
+
+.commands-toolbar {
+    padding: 16px;
+    margin-bottom: 17px;
+    border: 1px solid var(--cmd-border);
+    border-radius: 19px;
+    background: rgba(21,17,31,.92);
+}
+
+.commands-search-wrap {
+    position: relative;
+    margin-bottom: 13px;
+}
+
+.commands-search-icon {
+    position: absolute;
+    top: 50%;
+    right: 15px;
+    transform: translateY(-50%);
+    color: var(--cmd-purple-light);
+    font-size: 17px;
+    pointer-events: none;
+}
+
+.commands-search {
+    display: block;
+    width: 100%;
+    min-height: 48px;
+    padding: 12px 43px 12px 14px;
+    color: #fff;
+    background: #0e0b16;
+    border: 1px solid rgba(182,108,255,.18);
+    border-radius: 13px;
+    outline: none;
+    font-family: inherit;
+    font-size: 13px;
+    transition: border-color .2s, box-shadow .2s;
+}
+
+.commands-search:focus {
+    border-color: var(--cmd-purple);
+    box-shadow: 0 0 0 3px rgba(182,108,255,.10);
+}
+
+.commands-search::placeholder {
+    color: #776b89;
+}
+
+.commands-filters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.commands-filter {
+    min-height: 36px;
+    padding: 8px 13px;
+    border: 1px solid rgba(182,108,255,.17);
+    border-radius: 10px;
+    background: #100d18;
+    color: #b7a9c9;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: .2s;
+}
+
+.commands-filter:hover {
+    color: #fff;
+    border-color: rgba(182,108,255,.5);
+}
+
+.commands-filter.active {
+    color: #fff;
+    border-color: var(--cmd-purple);
+    background: rgba(182,108,255,.15);
+    box-shadow: inset 0 0 15px rgba(182,108,255,.05);
+}
+
+.commands-results {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 17px 2px 11px;
+}
+
+.commands-results-title {
+    color: #eee4ff;
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.commands-results-count {
+    color: var(--cmd-muted);
+    font-size: 11px;
+}
+
+.commands-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+}
+
+.command-card {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--cmd-border);
+    border-radius: 17px;
+    background: linear-gradient(145deg, #171220, #110e18);
+    transition: border-color .2s, background .2s, transform .2s;
+}
+
+.command-card:hover {
+    border-color: rgba(182,108,255,.42);
+    background: linear-gradient(145deg, #1c1528, #120e1a);
+}
+
+.command-card.is-open {
+    border-color: rgba(182,108,255,.48);
+    box-shadow: 0 8px 30px rgba(0,0,0,.14);
+}
+
+.command-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+}
+
+.command-toggle {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+    gap: 12px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: right;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.command-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 43px;
+    height: 43px;
+    border-radius: 13px;
+    border: 1px solid rgba(182,108,255,.25);
+    background: linear-gradient(
+        145deg,
+        rgba(182,108,255,.19),
+        rgba(182,108,255,.05)
+    );
+    color: var(--cmd-purple-light);
+    font-size: 20px;
+}
+
+.command-main {
+    min-width: 0;
+    flex: 1;
+}
+
+.command-name {
+    display: block;
+    color: #f8f2ff;
+    font-size: 14px;
+    font-weight: 900;
+    overflow-wrap: anywhere;
+}
+
+.command-description {
+    display: block;
+    margin-top: 5px;
+    color: var(--cmd-muted);
+    font-size: 11px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+}
+
+.command-badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.command-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 8px;
+    border-radius: 7px;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.command-badge.admin {
+    color: #d7adff;
+    background: rgba(182,108,255,.12);
+    border: 1px solid rgba(182,108,255,.18);
+}
+
+.command-badge.general {
+    color: #b8c5ff;
+    background: rgba(126,145,255,.10);
+    border: 1px solid rgba(126,145,255,.16);
+}
+
+.command-badge.enabled {
+    color: var(--cmd-green);
+    background: rgba(72,223,173,.08);
+    border: 1px solid rgba(72,223,173,.15);
+}
+
+.command-badge.disabled {
+    color: var(--cmd-red);
+    background: rgba(255,102,133,.08);
+    border: 1px solid rgba(255,102,133,.15);
+}
+
+.command-chevron {
+    flex-shrink: 0;
+    color: #a68bbf;
+    font-size: 17px;
+    transition: transform .2s;
+}
+
+.command-card.is-open .command-chevron {
+    transform: rotate(180deg);
+}
+
+.command-settings {
+    padding: 0 16px 17px;
+    border-top: 1px solid rgba(182,108,255,.12);
+}
+
+.command-settings-inner {
+    padding-top: 17px;
+}
+
+.command-setting-block {
+    margin-bottom: 18px;
+}
+
+.command-setting-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    color: #eee2ff;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.command-setting-title .mini-icon {
+    color: var(--cmd-purple-light);
+    font-size: 15px;
+}
+
+.command-setting-help {
+    margin: -3px 0 11px;
+    color: #9586a9;
+    font-size: 11px;
+    line-height: 1.8;
+}
+
+.command-switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 13px;
+    border: 1px solid rgba(182,108,255,.17);
+    border-radius: 12px;
+    background: rgba(182,108,255,.045);
+}
+
+.command-switch-text {
+    min-width: 0;
+}
+
+.command-switch-title {
+    color: #f4eaff;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.command-switch-description {
+    margin-top: 4px;
+    color: #9e91b0;
+    font-size: 10px;
+    line-height: 1.7;
+}
+
+.command-switch {
+    position: relative;
+    display: inline-block;
+    flex-shrink: 0;
+    width: 45px;
+    height: 25px;
+}
+
+.command-switch input {
+    width: 0;
+    height: 0;
+    opacity: 0;
+}
+
+.command-switch-slider {
+    position: absolute;
+    inset: 0;
+    border-radius: 30px;
+    background: #3b3148;
+    border: 1px solid rgba(255,255,255,.08);
+    cursor: pointer;
+    transition: .2s;
+}
+
+.command-switch-slider::before {
+    content: "";
+    position: absolute;
+    width: 17px;
+    height: 17px;
+    top: 3px;
+    right: 3px;
+    border-radius: 50%;
+    background: #c2b5d1;
+    transition: .2s;
+}
+
+.command-switch input:checked + .command-switch-slider {
+    background: rgba(182,108,255,.6);
+    border-color: var(--cmd-purple);
+}
+
+.command-switch input:checked + .command-switch-slider::before {
+    transform: translateX(-19px);
+    background: #fff;
+    box-shadow: 0 0 9px rgba(255,255,255,.25);
+}
+
+.command-picker {
+    padding: 12px;
+    border: 1px solid rgba(182,108,255,.14);
+    border-radius: 13px;
+    background: rgba(8,6,13,.35);
+}
+
+.command-picker-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 11px;
+}
+
+.command-picker-count {
+    color: #aa9bbd;
+    font-size: 10px;
+}
+
+.command-picker-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.command-mini-button {
+    padding: 6px 9px;
+    border: 1px solid rgba(182,108,255,.19);
+    border-radius: 7px;
+    background: rgba(182,108,255,.07);
+    color: #d7bdff;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.command-mini-button:hover {
+    border-color: var(--cmd-purple);
+    background: rgba(182,108,255,.15);
+}
+
+.command-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 2px;
+}
+
+.command-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid rgba(182,108,255,.12);
+    border-radius: 10px;
+    background: #120e1a;
+    cursor: pointer;
+    transition: .15s;
+}
+
+.command-option:hover {
+    border-color: rgba(182,108,255,.38);
+}
+
+.command-option:has(input:checked) {
+    border-color: rgba(182,108,255,.45);
+    background: rgba(182,108,255,.08);
+}
+
+.command-option input {
+    flex-shrink: 0;
+    accent-color: var(--cmd-purple);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+
+.command-option-name {
+    min-width: 0;
+    color: #d8cce7;
+    font-size: 11px;
+    overflow-wrap: anywhere;
+    line-height: 1.7;
+}
+
+.command-option input:checked + .command-option-name {
+    color: #f4eaff;
+}
+
+.command-all-channels {
+    margin-bottom: 11px;
+    padding: 12px;
+    border: 1px solid rgba(182,108,255,.22);
+    border-radius: 11px;
+    background: rgba(182,108,255,.07);
+}
+
+.command-all-channels .command-switch-row {
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.command-channel-disabled {
+    opacity: .42;
+    pointer-events: none;
+}
+
+.command-save-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 19px;
+    padding-top: 15px;
+    border-top: 1px solid rgba(182,108,255,.13);
+}
+
+.command-dirty-status {
+    color: #9889a9;
+    font-size: 10px;
+    line-height: 1.7;
+}
+
+.command-save-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 11px 18px;
+    border: 1px solid rgba(215,173,255,.42);
+    border-radius: 11px;
+    background: linear-gradient(135deg, #b66cff, #8845d1);
+    color: #fff;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 5px 18px rgba(143,69,209,.2);
+    transition: .2s;
+}
+
+.command-save-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 22px rgba(143,69,209,.3);
+}
+
+.command-save-button:disabled {
+    opacity: .55;
+    cursor: wait;
+    transform: none;
+}
+
+.commands-empty {
+    padding: 35px 18px;
+    text-align: center;
+    border: 1px dashed rgba(182,108,255,.25);
+    border-radius: 17px;
+    background: rgba(182,108,255,.025);
+}
+
+.commands-empty-icon {
+    margin-bottom: 10px;
+    color: var(--cmd-purple-light);
+    font-size: 30px;
+}
+
+.commands-empty-title {
+    color: #eee2ff;
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.commands-empty-text {
+    margin-top: 7px;
+    color: #9586a9;
+    font-size: 11px;
+    line-height: 1.8;
+}
+
+.commands-notice {
+    position: fixed;
+    z-index: 99999;
+    left: 18px;
+    bottom: 18px;
+    max-width: min(380px, calc(100vw - 36px));
+    padding: 14px 17px;
+    border: 1px solid rgba(182,108,255,.35);
+    border-radius: 13px;
+    background: #1b1427;
+    color: #f8efff;
+    font-size: 12px;
+    line-height: 1.8;
+    box-shadow: 0 12px 40px rgba(0,0,0,.4);
+}
+
+.commands-notice.success {
+    border-color: rgba(72,223,173,.4);
+}
+
+.commands-notice.error {
+    border-color: rgba(255,102,133,.4);
+}
+
+@media (min-width: 950px) {
+    .commands-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: start;
+    }
+}
+
+@media (max-width: 600px) {
+    .commands-page {
+        padding-top: 10px;
     }
 
-    aliases_by_command = {}
+    .commands-hero {
+        padding: 21px 17px;
+        border-radius: 19px;
+    }
 
-    for alias_item in aliases_collection.find({
-        "guild_id": guild_id
-    }).sort(
-        "created_at",
-        -1
-    ):
-        alias_command_name = str(
-            alias_item.get("command_name")
-            or ""
-        )
+    .commands-stats {
+        gap: 8px;
+    }
 
-        aliases_by_command.setdefault(
-            alias_command_name,
-            []
-        ).append(alias_item)
+    .commands-stat {
+        padding: 12px 10px;
+        border-radius: 13px;
+    }
 
-    for command in commands:
-        command_name = str(
-            command.get("name")
-            or command.get("command_name")
-            or ""
-        )
+    .commands-stat-label {
+        font-size: 10px;
+    }
 
-        selected_channel_ids = set(
-            saved_settings
-            .get(command_name, {})
-            .get("channel_ids", [])
-        )
+    .commands-stat-number {
+        font-size: 22px;
+    }
 
-        command["all_channels_selected"] = (
-            bool(available_channel_ids)
-            and (
-                not selected_channel_ids
-                or available_channel_ids.issubset(
-                    selected_channel_ids
-                )
-            )
-        )
+    .commands-toolbar {
+        padding: 12px;
+    }
 
-        command["command_aliases"] = (
-            aliases_by_command.get(
-                command_name,
-                []
-            )
-        )
+    .commands-filter {
+        flex: 1;
+        padding: 8px 9px;
+        text-align: center;
+    }
 
-    commands.sort(
-        key=lambda command: (
-            not command.get("is_admin_command", False),
-            str(
-                command.get("name")
-                or command.get("command_name")
-                or ""
-            ).casefold(),
-        )
-    )
+    .command-header {
+        padding: 13px 11px;
+        gap: 8px;
+    }
 
+    .command-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
+    }
 
-    return render_template_string(
-        BASE_STYLE + """
-        <div class="topbar">
+    .command-name {
+        font-size: 12px;
+    }
 
-            <div class="topbar-inner">
+    .command-description {
+        font-size: 10px;
+    }
 
-                <div class="brand">
+    .command-settings {
+        padding: 0 11px 13px;
+    }
 
-                    <div class="brand-icon">
-                        ض
-                    </div>
+    .command-options {
+        grid-template-columns: 1fr;
+        max-height: 220px;
+    }
 
-                    إدارة الأوامر
+    .command-save-row {
+        align-items: stretch;
+    }
 
-                </div>
+    .command-save-button {
+        width: 100%;
+    }
 
+    .command-dirty-status {
+        width: 100%;
+    }
+}
+</style>
 
-                <a
-                    class="btn btn-secondary"
-                    href="{{ url_for(
-                        'server_page',
-                        guild_id=guild_id
-                    ) }}"
-                >
-                    ← رجوع
-                </a>
+<div class="commands-page">
 
+    <section class="commands-hero">
+        <div class="commands-hero-content">
+            <div class="commands-eyebrow">
+                <span>✦</span>
+                DIAA CONTROL
+                <span>•</span>
+                COMMAND CENTER
             </div>
 
+            <h2>إدارة الأوامر</h2>
+
+            <p>
+                تحكّم بأوامر البوت من مكان واحد. اختر الرتب المسموح لها،
+                وحدد الرومات التي يعمل فيها الأمر، أو فعّل جميع الرومات.
+            </p>
+
+            <div class="commands-hero-footer">
+                <span class="commands-live">
+                    <span class="commands-live-dot"></span>
+                    لوحة التحكم جاهزة
+                </span>
+            </div>
+        </div>
+    </section>
+
+    <section class="commands-stats">
+        <div class="commands-stat">
+            <div class="commands-stat-label">إجمالي الأوامر</div>
+            <div class="commands-stat-number purple" id="totalCommands">
+                {{ commands|length }}
+            </div>
         </div>
 
+        <div class="commands-stat">
+            <div class="commands-stat-label">الأوامر المفعّلة</div>
+            <div class="commands-stat-number" id="enabledCommands">0</div>
+        </div>
 
-        <div class="container">
+        <div class="commands-stat">
+            <div class="commands-stat-label">الأوامر المعطّلة</div>
+            <div class="commands-stat-number" id="disabledCommands">0</div>
+        </div>
+    </section>
 
-            <nav class="module-nav" aria-label="أقسام إدارة السيرفر">
-                <a href="{{ url_for('server_page', guild_id=guild_id) }}">
-                    نظرة عامة
-                </a>
-                <a class="active" aria-current="page" href="{{ url_for('commands_page', guild_id=guild_id) }}">
-                    الأوامر والصلاحيات
-                </a>
-                <a href="{{ url_for('aliases_page', guild_id=guild_id) }}">
-                    اختصارات الأوامر
-                </a>
-                <a href="{{ url_for('create_channel', guild_id=guild_id) }}">
-                    إنشاء روم
-                </a>
-            </nav>
+    <section class="commands-toolbar">
+        <div class="commands-search-wrap">
+            <span class="commands-search-icon">⌕</span>
 
-            <div class="hero">
+            <input
+                type="search"
+                id="commandSearch"
+                class="commands-search"
+                placeholder="ابحث عن اسم الأمر أو وصفه..."
+                autocomplete="off"
+            >
+        </div>
 
-                <h1>
-                    إدارة
-                    <span class="gradient-text">
-                        الأوامر
-                    </span>
-                </h1>
+        <div class="commands-filters" id="commandTypeFilters">
+            <button
+                type="button"
+                class="commands-filter active"
+                data-kind-filter="all"
+            >
+                كل الأوامر
+            </button>
 
-                <p>
-                    تحكم بشكل دقيق في الرومات
-                    والرتب المسموح لها بكل أمر.
-                </p>
+            <button
+                type="button"
+                class="commands-filter"
+                data-kind-filter="admin"
+            >
+                ◈ الأوامر الإدارية
+            </button>
 
-            </div>
+            <button
+                type="button"
+                class="commands-filter"
+                data-kind-filter="general"
+            >
+                ◇ الأوامر العامة
+            </button>
+        </div>
 
+        <div class="commands-filters" id="commandStatusFilters" style="margin-top: 9px;">
+            <button
+                type="button"
+                class="commands-filter active"
+                data-status-filter="all"
+            >
+                جميع الحالات
+            </button>
 
-            <div class="card command-toolbar">
-                <input
-                    class="input"
-                    id="commandSearch"
-                    type="search"
-                    aria-label="ابحث عن أمر"
-                    placeholder="🔎 ابحث باسم الأمر أو وصفه..."
-                    oninput="filterCommands()"
-                >
+            <button
+                type="button"
+                class="commands-filter"
+                data-status-filter="enabled"
+            >
+                المفعّلة
+            </button>
 
-                <div class="command-filters">
-                    <label class="command-filter">
-                        <span class="form-label">نوع الأمر</span>
-                        <select id="commandKindFilter" class="select-box" onchange="filterCommands()">
-                            <option value="all">كل الأوامر</option>
-                            <option value="general">الأوامر العامة</option>
-                            <option value="admin">أوامر صاحب البوت فقط</option>
-                        </select>
-                    </label>
-                    <label class="command-filter">
-                        <span class="form-label">حالة الأمر</span>
-                        <select id="commandStatusFilter" class="select-box" onchange="filterCommands()">
-                            <option value="all">كل الحالات</option>
-                            <option value="enabled">مفعّل</option>
-                            <option value="disabled">معطّل</option>
-                        </select>
-                    </label>
-                </div>
+            <button
+                type="button"
+                class="commands-filter"
+                data-status-filter="disabled"
+            >
+                المعطّلة
+            </button>
+        </div>
+    </section>
 
-                <div id="commandResultCount" class="command-result-count" aria-live="polite"></div>
-            </div>
+    <div class="commands-results">
+        <div class="commands-results-title">قائمة الأوامر</div>
+        <div class="commands-results-count" id="visibleCommandsCount">
+            {{ commands|length }} أمر
+        </div>
+    </div>
 
+    <div class="commands-list" id="commandsList">
 
-            <div id="commandsList">
+        {% for command in commands %}
 
-            {% for command in commands %}
+            {% set command_name = command.get('name') or command.get('command_name') or 'بدون اسم' %}
+            {% set saved = saved_settings.get(command_name, {}) %}
+            {% set saved_channels = saved.get('channel_ids', []) %}
+            {% set saved_roles = saved.get('role_ids', []) %}
+            {% set saved_enabled = saved.get('enabled', True) %}
 
-            {% set command_name =
-                command.get("name")
-                or command.get("command_name")
-                or "بدون اسم"
-            %}
+            {% set admin_terms = [
+                'استدعاء', 'قفل', 'اظهار', 'إظهار',
+                'اخفاء', 'إخفاء', 'تحذير', 'تحذيرات',
+                'سجلات', 'باند', 'طرد', 'مسح',
+                'فتح', 'اسكات', 'اسكاتات',
+                'لاتتكلم', 'احكي', 'انتهاء-التسفير',
+                'مسح-تحذيرات', 'kick', 'ban', 'warn',
+                'lock', 'unlock', 'hide', 'show',
+                'logs', 'mute', 'unmute', 'clear',
+                'purge', 'timeout', 'untimeout',
+                'disconnect'
+            ] %}
 
-            {% set saved =
-                saved_settings.get(
-                    command_name,
-                    {}
-                )
-            %}
+            {% set ns = namespace(is_admin=command.get('is_admin_command', False)) %}
 
-            {% set saved_channels =
-                saved.get(
-                    "channel_ids",
-                    []
-                )
-            %}
+            {% for term in admin_terms %}
+                {% if term in command_name|lower %}
+                    {% set ns.is_admin = true %}
+                {% endif %}
+            {% endfor %}
 
-            {% set saved_roles =
-                saved.get(
-                    "role_ids",
-                    []
-                )
-            %}
+            {% set is_admin = ns.is_admin %}
+            {% set description = command.get('description') or command.get('help') or 'إعدادات التحكم بهذا الأمر.' %}
 
-            {% set saved_enabled =
-                saved.get(
-                    "enabled",
-                    True
-                )
-            %}
-
-
-            <div
+            <article
                 class="command-card"
-                data-command="{{ (command_name ~ ' ' ~ (command.get('description') or ''))|lower }}"
-                data-kind="{% if command.get('is_admin_command') %}admin{% else %}general{% endif %}"
-                data-enabled="{% if saved_enabled %}enabled{% else %}disabled{% endif %}"
-                data-guild-id="{{ guild_id }}"
+                data-command="{{ (command_name ~ ' ' ~ description)|lower }}"
+                data-kind="{{ 'admin' if is_admin else 'general' }}"
+                data-enabled="{{ 'enabled' if saved_enabled else 'disabled' }}"
                 data-command-name="{{ command_name }}"
             >
 
-                <div class="command-row">
+                <div class="command-header">
 
-                    <details class="command-details">
+                    <button
+                        type="button"
+                        class="command-toggle"
+                        aria-expanded="false"
+                    >
+                        <span class="command-icon">
+                            {% if is_admin %}
+                                ◈
+                            {% else %}
+                                ✦
+                            {% endif %}
+                        </span>
 
-                        <summary class="command-summary">
-                            <div class="command-summary-line">
+                        <span class="command-main">
+                            <span class="command-name">
+                                {{ command_name }}
+                            </span>
 
-                                <span class="command-name">
-                                    -{{ command_name }}
-                                </span>
+                            <span class="command-description">
+                                {{ description }}
+                            </span>
 
-                                {% if command.get("is_admin_command") %}
-                                <span class="badge badge-admin">
-                                    👑 صاحب البوت فقط
-                                </span>
+                            <span class="command-badges">
+                                {% if is_admin %}
+                                    <span class="command-badge admin">
+                                        ◈ إداري
+                                    </span>
                                 {% else %}
-                                <span class="badge badge-normal">
-                                    🌐 عام
-                                </span>
+                                    <span class="command-badge general">
+                                        ◇ عام
+                                    </span>
                                 {% endif %}
 
                                 <span
-                                    class="command-state {% if not saved_enabled %}is-disabled{% endif %}"
-                                    data-command-status
+                                    class="command-badge {{ 'enabled' if saved_enabled else 'disabled' }}"
+                                    data-enabled-badge
                                 >
-                                    {% if saved_enabled %}مفعّل{% else %}معطّل{% endif %}
+                                    {{ '● مفعّل' if saved_enabled else '● معطّل' }}
                                 </span>
-
-                            </div>
-                        </summary>
-
-                        <div class="command-settings-panel">
-
-                            {% if command.get("description") %}
-                            <div class="command-description">
-                                {{ command.get("description") }}
-                            </div>
-                            {% endif %}
-
-                <div class="command-grid">
-
-
-                    <!-- الرومات -->
-
-                    <div>
-
-                        <div class="channel-heading">
-                            <label class="form-label">
-                                🎯 الرومات المسموح بها
-                            </label>
-
-                            <label class="all-channels-toggle">
-                                <input
-                                    type="checkbox"
-                                    class="all-channels-check"
-                                    onchange="toggleAllChannels(this)"
-                                    aria-label="تشغيل الأمر في كل الرومات الحالية"
-                                    {% if command.get("all_channels_selected") %}
-                                    checked
-                                    {% endif %}
-                                    {% if not channels %}
-                                    disabled
-                                    {% endif %}
-                                >
-                                <span>كل الرومات الحالية</span>
-                            </label>
-                        </div>
-
-                        <div class="picker channel-picker">
-
-                            <div class="picker-top">
-
-                                <input
-                                    class="picker-search"
-                                    placeholder="🔎 ابحث عن روم..."
-                                    oninput="
-                                        filterOptions(
-                                            this
-                                        )
-                                    "
-                                >
-
-                                <div
-                                    class="picker-actions"
-                                >
-
-                                    <button
-                                        type="button"
-                                        class="mini-btn"
-                                        onclick="
-                                            selectAllInside(
-                                                this,
-                                                '.channel-check'
-                                            )
-                                        "
-                                    >
-                                        تحديد الكل
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        class="mini-btn"
-                                        onclick="
-                                            clearAllInside(
-                                                this,
-                                                '.channel-check'
-                                            )
-                                        "
-                                    >
-                                        إلغاء الكل
-                                    </button>
-
-                                </div>
-
-                            </div>
-
-
-                            <div
-                                class="options"
-                            >
-
-                                {% for channel in channels %}
-
-                                <label
-                                    class="option"
-                                    data-search="
-                                        {{ channel.name|lower }}
-                                    "
-                                >
-
-                                    <input
-                                        type="checkbox"
-                                        value="{{ channel.id }}"
-                                        class="channel-check"
-                                        {% if channel.id|string
-                                            in saved_channels %}
-                                        checked
-                                        {% endif %}
-                                    >
-
-                                    <span>
-                                        {% if channel.type ==
-                                            "text" %}
-                                        💬
-                                        {% elif channel.type ==
-                                            "announcement" %}
-                                        📢
-                                        {% elif channel.type ==
-                                            "forum" %}
-                                        🧵
-                                        {% endif %}
-
-                                        # {{ channel.name }}
-                                    </span>
-
-                                </label>
-
-                                {% endfor %}
-
-                            </div>
-
-                        </div>
-
-
-                        <div
-                            class="selected-count channel-count"
-                        >
-                        </div>
-
-                        <div class="channel-scope-note">
-                            يشمل الرومات المتاحة الآن؛ إذا أضفت رومًا جديدًا، افتح إعداد الأمر واحفظه ليشمله.
-                        </div>
-
-                    </div>
-
-
-                    <!-- الرتب -->
-
-                    <div>
-
-                        <label class="form-label">
-                            🛡️ الرتب المسموح بها
-                        </label>
-
-                        <div class="roles-picker">
-
-                            <div class="picker-top">
-
-                                <input
-                                    class="picker-search"
-                                    placeholder="🔎 ابحث عن رتبة..."
-                                    oninput="
-                                        filterOptions(
-                                            this
-                                        )
-                                    "
-                                >
-
-                                <div
-                                    class="roles-toolbar"
-                                >
-
-                                    <button
-                                        type="button"
-                                        class="mini-btn"
-                                        onclick="
-                                            selectAllInside(
-                                                this,
-                                                '.role-check'
-                                            )
-                                        "
-                                    >
-                                        👑 تحديد الكل
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        class="mini-btn"
-                                        onclick="
-                                            clearAllInside(
-                                                this,
-                                                '.role-check'
-                                            )
-                                        "
-                                    >
-                                        مسح الكل
-                                    </button>
-
-                                </div>
-
-                            </div>
-
-
-                            <div class="roles-list">
-
-                                {% for role in roles %}
-
-                                <label
-                                    class="
-                                        role-card
-                                        {% if role.id in saved_roles %}
-                                        selected
-                                        {% endif %}
-                                    "
-                                    data-search="
-                                        {{ role.name|lower }}
-                                    "
-                                >
-
-                                    <input
-                                        type="checkbox"
-                                        value="{{ role.id }}"
-                                        class="role-check"
-                                        {% if role.id in saved_roles %}
-                                        checked
-                                        {% endif %}
-                                    >
-
-
-                                    <span
-                                        class="role-color"
-                                        style="
-                                            background:
-                                                {{ role.color }};
-                                        "
-                                    ></span>
-
-
-                                    <span class="role-info">
-
-                                        <span
-                                            class="role-name"
-                                        >
-                                            {{ role.name }}
-                                        </span>
-
-                                        <span
-                                            class="role-id"
-                                        >
-                                            {{ role.id }}
-                                        </span>
-
-                                    </span>
-
-
-                                    <span
-                                        class="role-selected-icon"
-                                    >
-                                        ✓
-                                    </span>
-
-                                </label>
-
-                                {% endfor %}
-
-                            </div>
-
-                        </div>
-
-
-                        <div
-                            class="role-counter"
-                        >
-                        </div>
-
-                    </div>
+                            </span>
+                        </span>
+
+                        <span class="command-chevron">⌄</span>
+                    </button>
 
                 </div>
 
-                    <div class="command-alias-panel">
-                        <div class="command-alias-title">
-                            ⚡ اختصارات هذا الأمر
+                <div class="command-settings" hidden>
+                    <div class="command-settings-inner">
+
+                        <div class="command-setting-block">
+                            <div class="command-setting-title">
+                                <span class="mini-icon">⚙</span>
+                                حالة الأمر
+                            </div>
+
+                            <div class="command-switch-row">
+                                <div class="command-switch-text">
+                                    <div class="command-switch-title">
+                                        تفعيل الأمر
+                                    </div>
+
+                                    <div class="command-switch-description">
+                                        عند تعطيل الأمر لن يتمكن الأعضاء من استخدامه
+                                        وفق إعدادات النظام لديك.
+                                    </div>
+                                </div>
+
+                                <label class="command-switch">
+                                    <input
+                                        type="checkbox"
+                                        class="command-enabled"
+                                        {% if saved_enabled %}checked{% endif %}
+                                    >
+                                    <span class="command-switch-slider"></span>
+                                </label>
+                            </div>
                         </div>
 
-                        <div class="command-alias-form">
-                            <input
-                                type="text"
-                                class="input command-alias-input"
-                                maxlength="30"
-                                placeholder="اكتب اختصارًا قصيرًا، مثل: ذ"
-                                aria-label="اختصار جديد للأمر {{ command_name }}"
-                            >
+                        <div class="command-setting-block">
+                            <div class="command-setting-title">
+                                <span class="mini-icon">♙</span>
+                                الرتب المسموح لها
+                            </div>
+
+                            <p class="command-setting-help">
+                                حدد الرتب التي تستطيع استخدام هذا الأمر.
+                            </p>
+
+                            <div class="command-picker roles-picker">
+
+                                <div class="command-picker-tools">
+                                    <span class="command-picker-count">
+                                        المحدد:
+                                        <strong class="selected-count">0</strong>
+                                    </span>
+
+                                    <div class="command-picker-actions">
+                                        <button
+                                            type="button"
+                                            class="command-mini-button select-all"
+                                        >
+                                            تحديد الكل
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            class="command-mini-button clear-all"
+                                        >
+                                            إلغاء التحديد
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="command-options">
+                                    {% for role in roles %}
+                                        {% set role_id = role.get('id') or role.get('role_id') %}
+                                        {% set role_name = role.get('name') or role.get('role_name') or 'رتبة' %}
+
+                                        {% if role_id %}
+                                            <label class="command-option">
+                                                <input
+                                                    type="checkbox"
+                                                    class="role-checkbox"
+                                                    value="{{ role_id }}"
+                                                    {% if role_id|string in saved_roles %}checked{% endif %}
+                                                >
+
+                                                <span class="command-option-name">
+                                                    {{ role_name }}
+                                                </span>
+                                            </label>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <div class="command-setting-block">
+                            <div class="command-setting-title">
+                                <span class="mini-icon">▦</span>
+                                الرومات المسموح فيها
+                            </div>
+
+                            <p class="command-setting-help">
+                                حدد الرومات التي يعمل فيها الأمر، أو فعّل الخيار
+                                التالي للسماح باستخدامه في جميع الرومات.
+                            </p>
+
+                            <div class="command-all-channels">
+                                <div class="command-switch-row">
+                                    <div class="command-switch-text">
+                                        <div class="command-switch-title">
+                                            تفعيل الأمر بجميع الرومات
+                                        </div>
+
+                                        <div class="command-switch-description">
+                                            يتجاهل اختيار الرومات الفردية عند الحفظ.
+                                        </div>
+                                    </div>
+
+                                    <label class="command-switch">
+                                        <input
+                                            type="checkbox"
+                                            class="all-channels-check"
+                                            {% if not saved_channels %}checked{% endif %}
+                                        >
+                                        <span class="command-switch-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="command-picker channel-picker">
+                                <div class="command-picker-tools">
+                                    <span class="command-picker-count">
+                                        المحدد:
+                                        <strong class="selected-count">0</strong>
+                                    </span>
+
+                                    <div class="command-picker-actions">
+                                        <button
+                                            type="button"
+                                            class="command-mini-button select-all"
+                                        >
+                                            تحديد الكل
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            class="command-mini-button clear-all"
+                                        >
+                                            إلغاء التحديد
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="command-options channel-options">
+                                    {% for channel in channels %}
+                                        {% set channel_id = channel.get('id') or channel.get('channel_id') %}
+                                        {% set channel_name = channel.get('name') or channel.get('channel_name') or 'روم' %}
+
+                                        {% if channel_id %}
+                                            <label class="command-option">
+                                                <input
+                                                    type="checkbox"
+                                                    class="channel-checkbox"
+                                                    value="{{ channel_id }}"
+                                                    {% if channel_id|string in saved_channels %}checked{% endif %}
+                                                >
+
+                                                <span class="command-option-name">
+                                                    # {{ channel_name }}
+                                                </span>
+                                            </label>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="command-save-row">
+                            <div class="command-dirty-status">
+                                غيّر الإعدادات ثم اضغط حفظ التعديلات.
+                            </div>
+
                             <button
                                 type="button"
-                                class="btn btn-secondary command-alias-add"
-                                onclick="createCommandAlias(this)"
+                                class="command-save-button"
+                                onclick="saveCommand(this)"
                             >
-                                إضافة اختصار
+                                <span>حفظ التعديلات</span>
+                                <span>↗</span>
                             </button>
                         </div>
 
-                        <div class="command-alias-list">
-                            {% for alias_item in command.get("command_aliases", []) %}
-                            <span class="command-alias-item">
-                                <code>-{{ alias_item.get("alias") }}</code>
-                                <button
-                                    type="button"
-                                    class="command-alias-delete"
-                                    data-alias="{{ alias_item.get('alias') }}"
-                                    aria-label="حذف الاختصار {{ alias_item.get('alias') }}"
-                                    onclick="deleteCommandAlias(this)"
-                                >×</button>
-                            </span>
-                            {% else %}
-                            <span class="small">ما فيه اختصارات لهذا الأمر حالياً.</span>
-                            {% endfor %}
-                        </div>
                     </div>
-
-
-                <button
-                    type="button"
-                    class="btn btn-yellow"
-                    style="margin-top:18px"
-                    onclick="
-                        saveCommand(
-                            '{{ command_name }}',
-                            this
-                        )
-                    "
-                >
-                    💾 حفظ إعدادات الأمر
-                </button>
-
-                        </div>
-
-                    </details>
-
-                    <label class="switch command-toggle" title="تفعيل أو تعطيل الأمر">
-                        <input
-                            type="checkbox"
-                            class="command-enabled"
-                            onchange="updateCommandState(this)"
-                            {% if saved_enabled %}
-                            checked
-                            {% endif %}
-                        >
-                        <span class="slider"></span>
-                    </label>
-
                 </div>
 
-            </div>
+            </article>
 
-            {% endfor %}
+        {% endfor %}
 
-            </div>
+    </div>
 
-            <div id="commandNoMatches" class="command-empty" hidden>
-                لا توجد أوامر تطابق البحث والفلاتر الحالية.
-            </div>
-
-
-            {% if not commands %}
-
-            <div class="card empty">
-                لا توجد أوامر مسجلة في الموقع.
-            </div>
-
-            {% endif %}
-
-
-            <div class="footer">
-                ضياء BOT • نظام إدارة الأوامر
-            </div>
-
+    <div class="commands-empty" id="commandsEmpty" hidden>
+        <div class="commands-empty-icon">⌕</div>
+        <div class="commands-empty-title">ما لقينا أوامر مطابقة</div>
+        <div class="commands-empty-text">
+            جرّب البحث بكلمة ثانية أو غيّر نوع الأوامر المعروض.
         </div>
+    </div>
 
+    <div class="commands-notice" id="commandsNotice" hidden></div>
 
-        <script>
+</div>
 
+<script>
+(function () {
+    "use strict";
 
-        function filterCommands() {
+    const page = document.querySelector(".commands-page");
+    if (!page) return;
 
-            const value =
-                document
-                    .getElementById(
-                        "commandSearch"
-                    )
-                    .value
-                    .toLowerCase()
-                    .trim();
+    const cards = Array.from(page.querySelectorAll(".command-card"));
+    const searchInput = page.querySelector("#commandSearch");
+    const emptyState = page.querySelector("#commandsEmpty");
+    const countLabel = page.querySelector("#visibleCommandsCount");
 
-            const kind =
-                document
-                    .getElementById("commandKindFilter")
-                    .value;
+    let selectedKind = "all";
+    let selectedStatus = "all";
+    let noticeTimeout = null;
 
-            const status =
-                document
-                    .getElementById("commandStatusFilter")
-                    .value;
+    function showNotice(message, type) {
+        const notice = page.querySelector("#commandsNotice");
 
-            const cards =
-                [
-                    ...document.querySelectorAll(
-                        ".command-card"
-                    )
-                ];
+        notice.textContent = message;
+        notice.className = "commands-notice " + (type || "");
+        notice.hidden = false;
 
-            let visibleCount = 0;
+        if (noticeTimeout) {
+            clearTimeout(noticeTimeout);
+        }
 
-            cards.forEach(card => {
+        noticeTimeout = setTimeout(function () {
+            notice.hidden = true;
+        }, 4000);
+    }
 
-                const name =
-                    card.dataset.command
-                    || "";
+    function updateStats() {
+        let enabled = 0;
+        let disabled = 0;
 
-                const currentStatus =
-                    card.querySelector(
-                        ".command-enabled"
-                    ).checked
-                        ? "enabled"
-                        : "disabled";
+        cards.forEach(function (card) {
+            const checkbox = card.querySelector(".command-enabled");
 
-                const matches =
-                    name.includes(value)
-                    && (
-                        kind === "all"
-                        || card.dataset.kind === kind
-                    )
-                    && (
-                        status === "all"
-                        || currentStatus === status
-                    );
+            if (checkbox && checkbox.checked) {
+                enabled++;
+            } else {
+                disabled++;
+            }
+        });
 
-                card.hidden = !matches;
+        page.querySelector("#totalCommands").textContent = cards.length;
+        page.querySelector("#enabledCommands").textContent = enabled;
+        page.querySelector("#disabledCommands").textContent = disabled;
+    }
 
-                if (matches) {
-                    visibleCount += 1;
-                }
+    function updatePickerCount(picker) {
+        if (!picker) return;
+
+        const checkboxes = picker.querySelectorAll(
+            'input[type="checkbox"]'
+        );
+
+        const checked = Array.from(checkboxes).filter(function (input) {
+            return input.checked;
+        }).length;
+
+        const output = picker.querySelector(".selected-count");
+
+        if (output) {
+            output.textContent = checked;
+        }
+    }
+
+    function updateAllPickers(card) {
+        card.querySelectorAll(".command-picker").forEach(function (picker) {
+            updatePickerCount(picker);
+        });
+    }
+
+    function updateChannelState(card) {
+        const allChannels = card.querySelector(".all-channels-check");
+        const picker = card.querySelector(".channel-picker");
+
+        if (!allChannels || !picker) return;
+
+        const inputs = picker.querySelectorAll(".channel-checkbox");
+
+        if (allChannels.checked) {
+            inputs.forEach(function (input) {
+                input.checked = false;
             });
 
-            const count =
-                document.getElementById(
-                    "commandResultCount"
-                );
-
-            if (count) {
-                count.textContent =
-                    "عرض "
-                    + visibleCount
-                    + " من "
-                    + cards.length
-                    + " أمر";
-            }
-
-            const empty =
-                document.getElementById(
-                    "commandNoMatches"
-                );
-
-            if (empty) {
-                empty.hidden =
-                    visibleCount > 0
-                    || cards.length === 0;
-            }
+            picker.classList.add("command-channel-disabled");
+        } else {
+            picker.classList.remove("command-channel-disabled");
         }
 
+        updatePickerCount(picker);
+    }
 
-        function updateCommandState(input) {
+    function updateCardStatus(card) {
+        const checkbox = card.querySelector(".command-enabled");
+        if (!checkbox) return;
 
-            const card =
-                input.closest(
-                    ".command-card"
-                );
+        const enabled = checkbox.checked;
 
-            if (!card) {
-                return;
-            }
+        card.dataset.enabled = enabled ? "enabled" : "disabled";
 
-            const enabled =
-                input.checked;
+        const badge = card.querySelector("[data-enabled-badge]");
 
-            card.dataset.enabled =
-                enabled
-                    ? "enabled"
-                    : "disabled";
-
-            const status =
-                card.querySelector(
-                    "[data-command-status]"
-                );
-
-            if (status) {
-                status.textContent =
-                    enabled
-                        ? "مفعّل"
-                        : "معطّل";
-
-                status.classList.toggle(
-                    "is-disabled",
-                    !enabled
-                );
-            }
-
-            filterCommands();
+        if (badge) {
+            badge.classList.toggle("enabled", enabled);
+            badge.classList.toggle("disabled", !enabled);
+            badge.textContent = enabled ? "● مفعّل" : "● معطّل";
         }
 
+        updateStats();
+        applyFilters();
+    }
 
-        function filterOptions(input) {
+    function applyFilters() {
+        const query = (searchInput.value || "").trim().toLowerCase();
+        let visible = 0;
 
-            const value =
-                input.value
-                    .toLowerCase()
-                    .trim();
+        cards.forEach(function (card) {
+            const text = (card.dataset.command || "").toLowerCase();
 
+            const matchesSearch = !query || text.includes(query);
 
-            const picker =
-                input.closest(
-                    ".picker, .roles-picker"
-                );
+            const matchesKind =
+                selectedKind === "all" ||
+                card.dataset.kind === selectedKind;
 
+            const matchesStatus =
+                selectedStatus === "all" ||
+                card.dataset.enabled === selectedStatus;
 
-            if (!picker) {
-                return;
-            }
+            const show = matchesSearch && matchesKind && matchesStatus;
 
+            card.hidden = !show;
 
-            picker
-                .querySelectorAll(
-                    ".option, .role-card"
-                )
-                .forEach(item => {
+            if (show) visible++;
+        });
 
-                    const search =
-                        item.dataset.search
-                        || "";
+        countLabel.textContent = visible + " من " + cards.length + " أمر";
+        emptyState.hidden = visible !== 0;
+    }
 
-                    item.style.display =
-                        search.includes(value)
-                            ? (
-                                item.classList.contains(
-                                    "role-card"
-                                )
-                                    ? "flex"
-                                    : "grid"
-                              )
-                            : "none";
+    page.querySelectorAll(".command-toggle").forEach(function (button) {
+        button.addEventListener("click", function () {
+            const card = button.closest(".command-card");
+            const settings = card.querySelector(".command-settings");
+            const isOpen = card.classList.contains("is-open");
 
-                });
-        }
+            card.classList.toggle("is-open", !isOpen);
+            settings.hidden = isOpen;
+            button.setAttribute("aria-expanded", String(!isOpen));
+        });
+    });
 
+    page.querySelectorAll(".command-enabled").forEach(function (checkbox) {
+        checkbox.addEventListener("change", function () {
+            updateCardStatus(checkbox.closest(".command-card"));
+        });
+    });
 
-        function selectAllInside(
-            button,
-            selector
-        ) {
+    page.querySelectorAll(".command-picker").forEach(function (picker) {
+        const card = picker.closest(".command-card");
 
-            const picker =
-                button.closest(
-                    ".picker, .roles-picker"
-                );
+        picker.querySelectorAll('input[type="checkbox"]').forEach(
+            function (checkbox) {
+                checkbox.addEventListener("change", function () {
+                    updatePickerCount(picker);
 
-
-            if (!picker) {
-                return;
-            }
-
-
-            picker
-                .querySelectorAll(
-                    selector
-                )
-                .forEach(input => {
-
-                    input.checked = true;
-
-                    const role =
-                        input.closest(
-                            ".role-card"
-                        );
-
-                    if (role) {
-                        role.classList.add(
-                            "selected"
-                        );
-                    }
-
-                });
-
-
-            updateCounts();
-        }
-
-
-        function clearAllInside(
-            button,
-            selector
-        ) {
-
-            const picker =
-                button.closest(
-                    ".picker, .roles-picker"
-                );
-
-
-            if (!picker) {
-                return;
-            }
-
-
-            picker
-                .querySelectorAll(
-                    selector
-                )
-                .forEach(input => {
-
-                    input.checked = false;
-
-                    const role =
-                        input.closest(
-                            ".role-card"
-                        );
-
-                    if (role) {
-                        role.classList.remove(
-                            "selected"
-                        );
-                    }
-
-                });
-
-
-            updateCounts();
-        }
-
-
-        function toggleAllChannels(
-            input,
-            initial = false
-        ) {
-            const card =
-                input.closest(
-                    ".command-card"
-                );
-
-            if (!card) {
-                return;
-            }
-
-            const channelInputs = [
-                ...card.querySelectorAll(
-                    ".channel-check"
-                )
-            ];
-
-            if (input.checked) {
-                channelInputs.forEach(channel => {
-                    channel.checked = true;
-                });
-            } else if (!initial) {
-                channelInputs.forEach(channel => {
-                    channel.checked = false;
-                });
-            }
-
-            const picker =
-                card.querySelector(
-                    ".channel-picker"
-                );
-
-            if (picker) {
-                picker.classList.toggle(
-                    "is-all-selected",
-                    input.checked
-                );
-
-                picker.querySelectorAll(
-                    ".channel-check, .picker-search, .picker-actions .mini-btn"
-                ).forEach(control => {
-                    control.disabled = input.checked;
-                });
-            }
-
-            updateCounts();
-        }
-
-
-        function updateCounts() {
-
-            document
-                .querySelectorAll(
-                    ".command-card"
-                )
-                .forEach(card => {
-
-                    const channels =
-                        card.querySelectorAll(
-                            ".channel-check:checked"
-                        ).length;
-
-
-                    const roles =
-                        card.querySelectorAll(
-                            ".role-check:checked"
-                        ).length;
-
-                    const allRooms =
-                        card.querySelector(
+                    if (checkbox.classList.contains("channel-checkbox")) {
+                        const allChannels = card.querySelector(
                             ".all-channels-check"
-                        )?.checked;
-
-                    const channelCounter =
-                        card.querySelector(
-                            ".channel-count"
                         );
 
+                        if (allChannels) {
+                            const selectedChannels = card.querySelectorAll(
+                                ".channel-checkbox:checked"
+                            );
 
-                    const roleCounter =
-                        card.querySelector(
-                            ".role-counter"
-                        );
-
-
-                    if (channelCounter) {
-
-                        channelCounter.textContent =
-                            allRooms
-                                ? "✓ يعمل في كل الرومات الحالية"
-                                : channels
-                                ? "✓ تم تحديد "
-                                  + channels
-                                  + " روم"
-                                : "لم يتم تحديد رومات";
-                    }
-
-
-                    if (roleCounter) {
-
-                        roleCounter.textContent =
-                            roles
-                                ? "✓ تم تحديد "
-                                  + roles
-                                  + " رتبة"
-                                : "لم يتم تحديد رتب";
-                    }
-
-                });
-        }
-
-
-        async function saveCommand(
-            commandName,
-            button
-        ) {
-
-            const card =
-                button.closest(
-                    ".command-card"
-                );
-
-
-            if (!card) {
-
-                alert(
-                    "تعذر العثور على الأمر"
-                );
-
-                return;
-            }
-
-
-            const channels = [
-                ...card.querySelectorAll(
-                    ".channel-check:checked"
-                )
-            ].map(
-                x => x.value
-            );
-
-            const allRooms =
-                card.querySelector(
-                    ".all-channels-check"
-                )?.checked;
-
-            if (
-                !allRooms
-                && channels.length === 0
-            ) {
-                alert(
-                    "حدد رومًا واحدًا على الأقل أو اختر «كل الرومات الحالية»"
-                );
-
-                return;
-            }
-
-
-            const roles = [
-                ...card.querySelectorAll(
-                    ".role-check:checked"
-                )
-            ].map(
-                x => x.value
-            );
-
-
-            const enabled =
-                card.querySelector(
-                    ".command-enabled"
-                ).checked;
-
-
-            const oldText =
-                button.innerHTML;
-
-
-            button.disabled = true;
-
-            button.innerHTML =
-                "⏳ جاري الحفظ...";
-
-
-            try {
-
-                const response =
-                    await fetch(
-                        "{{ url_for(
-                            'save_command'
-                        ) }}",
-                        {
-                            method: "POST",
-
-                            headers: {
-                                "Content-Type":
-                                    "application/json"
-                            },
-
-                            body:
-                                JSON.stringify({
-
-                                    guild_id:
-                                        "{{ guild_id }}",
-
-                                    command_name:
-                                        commandName,
-
-                                    channel_ids:
-                                        channels,
-
-                                    role_ids:
-                                        roles,
-
-                                    enabled:
-                                        enabled
-
-                                })
+                            if (selectedChannels.length > 0) {
+                                allChannels.checked = false;
+                            }
                         }
-                    );
-
-
-                const data =
-                    await response.json();
-
-
-                if (data.success) {
-
-                    button.innerHTML =
-                        "✓ تم الحفظ";
-
-                    button.style.background =
-                        "linear-gradient(135deg,#7c3aed,#a78bfa)";
-
-                    setTimeout(() => {
-
-                        button.innerHTML =
-                            oldText;
-
-                        button.style.background =
-                            "";
-
-                    }, 1600);
-
-                } else {
-
-                    alert(
-                        data.message ||
-                        "فشل الحفظ"
-                    );
-
-                    button.innerHTML =
-                        oldText;
-                }
-
-
-            } catch (error) {
-
-                alert(
-                    "حدث خطأ أثناء حفظ الإعدادات"
-                );
-
-                button.innerHTML =
-                    oldText;
-
-            }
-
-
-            button.disabled = false;
-        }
-
-
-        async function createCommandAlias(button) {
-            const card =
-                button.closest(
-                    ".command-card"
-                );
-
-            const input =
-                card?.querySelector(
-                    ".command-alias-input"
-                );
-
-            const alias = (input?.value || "")
-                .trim()
-                .replace(/^[-.]/, "");
-
-            if (!card || !alias) {
-                alert("اكتب الاختصار أولاً");
-                return;
-            }
-
-            button.disabled = true;
-
-            try {
-                const response = await fetch(
-                    "{{ url_for('create_alias') }}",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json"
-                        },
-                        body: JSON.stringify({
-                            guild_id: card.dataset.guildId,
-                            command_name: card.dataset.commandName,
-                            alias: alias
-                        })
-                    }
-                );
-
-                const data = await response.json();
-                alert(data.message || "تم التنفيذ");
-
-                if (data.success) {
-                    location.reload();
-                }
-            } catch (error) {
-                alert("تعذر إضافة الاختصار");
-                button.disabled = false;
-            }
-        }
-
-
-        async function deleteCommandAlias(button) {
-            const card =
-                button.closest(
-                    ".command-card"
-                );
-
-            const alias =
-                button.dataset.alias;
-
-            if (
-                !card
-                || !alias
-                || !confirm("هل تريد حذف هذا الاختصار؟")
-            ) {
-                return;
-            }
-
-            button.disabled = true;
-
-            try {
-                const response = await fetch(
-                    "{{ url_for('delete_alias') }}",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json"
-                        },
-                        body: JSON.stringify({
-                            guild_id: card.dataset.guildId,
-                            alias: alias
-                        })
-                    }
-                );
-
-                const data = await response.json();
-                alert(data.message || "تم التنفيذ");
-
-                if (data.success) {
-                    location.reload();
-                }
-            } catch (error) {
-                alert("تعذر حذف الاختصار");
-                button.disabled = false;
-            }
-        }
-
-
-        document.addEventListener(
-            "change",
-            function(event) {
-
-                if (
-                    event.target.matches(
-                        ".role-check"
-                    )
-                ) {
-
-                    const role =
-                        event.target.closest(
-                            ".role-card"
-                        );
-
-                    if (role) {
-
-                        role.classList.toggle(
-                            "selected",
-                            event.target.checked
-                        );
-
                     }
 
-                }
-
-
-                updateCounts();
+                    updateChannelState(card);
+                });
             }
         );
 
+        const selectAll = picker.querySelector(".select-all");
+        const clearAll = picker.querySelector(".clear-all");
 
-        document
-            .querySelectorAll(
-                ".all-channels-check:checked"
-            )
-            .forEach(input => {
-                toggleAllChannels(
-                    input,
-                    true
-                );
+        if (selectAll) {
+            selectAll.addEventListener("click", function () {
+                if (picker.classList.contains("channel-picker")) {
+                    const allChannels = card.querySelector(
+                        ".all-channels-check"
+                    );
+
+                    if (allChannels) allChannels.checked = false;
+                }
+
+                picker.querySelectorAll(
+                    'input[type="checkbox"]'
+                ).forEach(function (input) {
+                    input.checked = true;
+                });
+
+                updateChannelState(card);
+                updateAllPickers(card);
+            });
+        }
+
+        if (clearAll) {
+            clearAll.addEventListener("click", function () {
+                picker.querySelectorAll(
+                    'input[type="checkbox"]'
+                ).forEach(function (input) {
+                    input.checked = false;
+                });
+
+                updateAllPickers(card);
+            });
+        }
+    });
+
+    page.querySelectorAll(".all-channels-check").forEach(function (checkbox) {
+        checkbox.addEventListener("change", function () {
+            updateChannelState(checkbox.closest(".command-card"));
+        });
+    });
+
+    page.querySelectorAll("[data-kind-filter]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            selectedKind = button.dataset.kindFilter;
+
+            page.querySelectorAll("[data-kind-filter]").forEach(function (item) {
+                item.classList.toggle("active", item === button);
             });
 
+            applyFilters();
+        });
+    });
 
-        updateCounts();
-        filterCommands();
+    page.querySelectorAll("[data-status-filter]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            selectedStatus = button.dataset.statusFilter;
 
-        </script>
-        """,
-        guild=guild,
+            page.querySelectorAll("[data-status-filter]").forEach(function (item) {
+                item.classList.toggle("active", item === button);
+            });
+
+            applyFilters();
+        });
+    });
+
+    searchInput.addEventListener("input", applyFilters);
+
+    cards.forEach(function (card) {
+        updateAllPickers(card);
+        updateChannelState(card);
+    });
+
+    updateStats();
+    applyFilters();
+
+    window.saveCommand = async function (button) {
+        const card = button.closest(".command-card");
+        if (!card) return;
+
+        const commandName = card.dataset.commandName;
+        const enabled = card.querySelector(".command-enabled").checked;
+        const allChannels = card.querySelector(".all-channels-check").checked;
+
+        const roleIds = Array.from(
+            card.querySelectorAll(".role-checkbox:checked")
+        ).map(function (input) {
+            return input.value;
+        });
+
+        const channelIds = allChannels ? [] : Array.from(
+            card.querySelectorAll(".channel-checkbox:checked")
+        ).map(function (input) {
+            return input.value;
+        });
+
+        if (!allChannels && channelIds.length === 0) {
+            showNotice(
+                "اختر رومًا واحدًا على الأقل أو فعّل خيار جميع الرومات.",
+                "error"
+            );
+            return;
+        }
+
+        const originalHTML = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = "<span>جارٍ الحفظ...</span>";
+
+        try {
+            const response = await fetch(
+                {{ url_for("save_command")|tojson }},
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        guild_id: {{ guild_id|string|tojson }},
+                        command_name: commandName,
+                        channel_ids: channelIds,
+                        role_ids: roleIds,
+                        enabled: enabled,
+                        all_channels: allChannels
+                    })
+                }
+            );
+
+            let result = {};
+
+            try {
+                result = await response.json();
+            } catch (_) {
+                result = {};
+            }
+
+            if (!response.ok || result.success === false || result.error) {
+                throw new Error(
+                    result.message ||
+                    result.error ||
+                    "تعذّر حفظ الإعدادات."
+                );
+            }
+
+            showNotice(
+                result.message || "تم حفظ إعدادات الأمر بنجاح.",
+                "success"
+            );
+
+            updateCardStatus(card);
+            updateAllPickers(card);
+
+        } catch (error) {
+            showNotice(
+                error.message || "حدث خطأ أثناء حفظ الإعدادات.",
+                "error"
+            );
+        } finally {
+            button.disabled = false;
+            button.innerHTML = originalHTML;
+        }
+    };
+})();
+</script>
+""",
         guild_id=guild_id,
+        guild=guild,
         channels=channels,
         roles=roles,
         commands=commands,
