@@ -2818,7 +2818,6 @@ def callback():
     session.permanent = True
 
     return redirect(url_for("dashboard"))
-)
 
 
 # =========================================================
