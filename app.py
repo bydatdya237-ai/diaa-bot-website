@@ -58,15 +58,20 @@ if not MONGO_URI:
 # Flask
 # =========================================================
 
+
 app = Flask(__name__)
 
-app.secret_key = os.getenv(
-    "FLASK_SECRET_KEY",
-    secrets.token_hex(32)
-)
+app.secret_key = os.getenv("FLASK_SECRET_KEY")
+
+if not app.secret_key:
+    raise RuntimeError(
+        "يجب ضبط FLASK_SECRET_KEY في Railway"
+    )
 
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 
 
 # =========================================================
