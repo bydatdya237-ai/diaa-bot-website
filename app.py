@@ -6069,8 +6069,14 @@ def commands_page(guild_id):
     };
 })();
 </script>
-"""
-)
+""",
+        guild_id=guild_id,
+        guild=guild,
+        channels=channels,
+        roles=roles,
+        commands=commands,
+        saved_settings=saved_settings,
+    )
 
 
 # =========================================================
