@@ -2754,9 +2754,9 @@ def home():
 # تسجيل الدخول
 # =========================================================
 
+
 @app.route("/login")
 def login():
-
     params = {
         "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
@@ -2772,22 +2772,17 @@ def login():
 
 @app.route("/callback")
 def callback():
-
     code = request.args.get("code")
 
     if not code:
-        return redirect(
-            url_for("home")
-        )
+        return redirect(url_for("home"))
 
     data = {
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "grant_type":
-            "authorization_code",
+        "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri":
-            REDIRECT_URI,
+        "redirect_uri": REDIRECT_URI,
     }
 
     try:
@@ -2803,14 +2798,22 @@ def callback():
         return "فشل تسجيل الدخول", 400
 
     token_data = response.json()
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
 
-    session["access_token"] = token_data.get(
-        "access_token"
-    )
+    if not access_token:
+        return "لم يتم استلام رمز تسجيل الدخول", 400
 
-    return redirect(
-        url_for("dashboard")
-    )
+    session.clear()
+    session["access_token"] = access_token
+
+    if refresh_token:
+        session["refresh_token"] = refresh_token
+
+    session.permanent = True
+
+    return redirect(url_for("dashboard"))
+)
 
 
 # =========================================================
