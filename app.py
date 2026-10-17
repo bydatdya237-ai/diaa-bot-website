@@ -40,6 +40,15 @@ DISCORD_API = "https://discord.com/api/v10"
 
 PORT = int(os.getenv("PORT", "8080"))
 
+OWNER_ONLY_COMMANDS = frozenset({
+    "تصفير",
+    "ضيف",
+    "اعطي",
+    "سحب",
+    "اسحب",
+    "هاتمصروف",
+})
+
 
 if not CLIENT_ID:
     raise RuntimeError("DISCORD_CLIENT_ID غير موجود")
@@ -153,6 +162,19 @@ def discord_request(
 
 def clean_id(value):
     return str(value).strip()
+
+
+def is_owner_only_command(command_name):
+    normalized = (
+        str(command_name or "")
+        .strip()
+        .replace("ـ", "")
+        .replace(" ", "")
+        .replace("-", "")
+        .replace("_", "")
+    )
+
+    return normalized in OWNER_ONLY_COMMANDS
 
 
 def is_forced_economy_guild(guild_id):
@@ -1238,7 +1260,7 @@ button {
 
     border-radius: 22px;
 
-    padding: 18px;
+    padding: 0;
 
     margin-bottom: 14px;
 
@@ -1250,6 +1272,172 @@ button {
 .command-card:hover {
     border-color:
         rgba(56,189,248,.2);
+}
+
+.command-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 13px 16px;
+}
+
+.command-details {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.command-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 38px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.command-summary::-webkit-details-marker {
+    display: none;
+}
+
+.command-summary::after {
+    content: "⌄";
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+    color: #a78bfa;
+    font-size: 20px;
+    transition: transform .18s ease;
+}
+
+.command-details[open] > .command-summary::after {
+    transform: rotate(180deg);
+}
+
+.command-summary-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.command-settings-panel {
+    padding: 14px 2px 2px;
+    border-top: 1px solid rgba(255,255,255,.08);
+    margin-top: 12px;
+}
+
+.command-toggle {
+    flex: 0 0 auto;
+    margin-top: 5px;
+}
+
+.channel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.channel-heading .form-label {
+    margin-bottom: 0;
+}
+
+.all-channels-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: #c4b5fd;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.all-channels-toggle input {
+    accent-color: #8b5cf6;
+}
+
+.all-channels-toggle input:disabled {
+    cursor: not-allowed;
+}
+
+.channel-scope-note {
+    margin-top: 7px;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+.picker.is-all-selected {
+    opacity: .72;
+}
+
+.command-alias-panel {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 14px;
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 15px;
+    background: rgba(3,12,24,.42);
+}
+
+.command-alias-title {
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.command-alias-form {
+    display: flex;
+    gap: 8px;
+}
+
+.command-alias-form .input {
+    min-width: 0;
+    padding: 10px 12px;
+}
+
+.command-alias-list {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.command-alias-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 7px 5px 10px;
+    border: 1px solid rgba(167,139,250,.2);
+    border-radius: 999px;
+    color: #e9ddff;
+    background: rgba(139,92,246,.1);
+    font-size: 12px;
+}
+
+.command-alias-item code {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-family: inherit;
+    font-weight: 900;
+}
+
+.command-alias-delete {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 50%;
+    color: #fecaca;
+    background: rgba(239,68,68,.13);
+    cursor: pointer;
+}
+
+.command-alias-delete:hover {
+    background: rgba(239,68,68,.25);
 }
 
 .command-head {
@@ -2085,9 +2273,22 @@ button {
     }
 
     .command-card {
-        padding: 14px;
+        padding: 0;
 
         border-radius: 17px;
+    }
+
+    .command-row {
+        gap: 8px;
+        padding: 12px;
+    }
+
+    .command-summary-line {
+        align-items: flex-start;
+    }
+
+    .command-alias-form {
+        flex-direction: column;
     }
 
     .command-head {
@@ -4485,6 +4686,17 @@ def commands_page(guild_id):
         commands_collection.find({})
     )
 
+    for command in commands:
+        command_name = (
+            command.get("name")
+            or command.get("command_name")
+            or ""
+        )
+
+        command["is_admin_command"] = (
+            is_owner_only_command(command_name)
+        )
+
 
     # =====================================================
     # جلب كل إعدادات الأوامر لهذا السيرفر
@@ -4539,6 +4751,72 @@ def commands_page(guild_id):
                     )
                 ],
         }
+
+
+    available_channel_ids = {
+        str(channel.get("id"))
+        for channel in channels
+        if channel.get("id") is not None
+    }
+
+    aliases_by_command = {}
+
+    for alias_item in aliases_collection.find({
+        "guild_id": guild_id
+    }).sort(
+        "created_at",
+        -1
+    ):
+        alias_command_name = str(
+            alias_item.get("command_name")
+            or ""
+        )
+
+        aliases_by_command.setdefault(
+            alias_command_name,
+            []
+        ).append(alias_item)
+
+    for command in commands:
+        command_name = str(
+            command.get("name")
+            or command.get("command_name")
+            or ""
+        )
+
+        selected_channel_ids = set(
+            saved_settings
+            .get(command_name, {})
+            .get("channel_ids", [])
+        )
+
+        command["all_channels_selected"] = (
+            bool(available_channel_ids)
+            and (
+                not selected_channel_ids
+                or available_channel_ids.issubset(
+                    selected_channel_ids
+                )
+            )
+        )
+
+        command["command_aliases"] = (
+            aliases_by_command.get(
+                command_name,
+                []
+            )
+        )
+
+    commands.sort(
+        key=lambda command: (
+            not command.get("is_admin_command", False),
+            str(
+                command.get("name")
+                or command.get("command_name")
+                or ""
+            ).casefold(),
+        )
+    )
 
 
     return render_template_string(
@@ -4623,7 +4901,7 @@ def commands_page(guild_id):
                         <select id="commandKindFilter" class="select-box" onchange="filterCommands()">
                             <option value="all">كل الأوامر</option>
                             <option value="general">الأوامر العامة</option>
-                            <option value="admin">الأوامر الإدارية</option>
+                            <option value="admin">أوامر صاحب البوت فقط</option>
                         </select>
                     </label>
                     <label class="command-filter">
@@ -4684,83 +4962,48 @@ def commands_page(guild_id):
                 data-command="{{ (command_name ~ ' ' ~ (command.get('description') or ''))|lower }}"
                 data-kind="{% if command.get('is_admin_command') %}admin{% else %}general{% endif %}"
                 data-enabled="{% if saved_enabled %}enabled{% else %}disabled{% endif %}"
+                data-guild-id="{{ guild_id }}"
+                data-command-name="{{ command_name }}"
             >
 
-                <div class="command-head">
+                <div class="command-row">
 
-                    <div>
+                    <details class="command-details">
 
-                        <div class="command-name">
-                            -{{ command_name }}
-                        </div>
+                        <summary class="command-summary">
+                            <div class="command-summary-line">
 
-                        {% if command.get("description") %}
-                        <div class="command-description">
-                            {{ command.get("description") }}
-                        </div>
-                        {% endif %}
+                                <span class="command-name">
+                                    -{{ command_name }}
+                                </span>
 
-                        <div
-                            style="margin-top:7px"
-                        >
+                                {% if command.get("is_admin_command") %}
+                                <span class="badge badge-admin">
+                                    👑 صاحب البوت فقط
+                                </span>
+                                {% else %}
+                                <span class="badge badge-normal">
+                                    🌐 عام
+                                </span>
+                                {% endif %}
 
-                            {% if command.get(
-                                "is_admin_command"
-                            ) %}
+                                <span
+                                    class="command-state {% if not saved_enabled %}is-disabled{% endif %}"
+                                    data-command-status
+                                >
+                                    {% if saved_enabled %}مفعّل{% else %}معطّل{% endif %}
+                                </span>
 
-                            <span
-                                class="
-                                    badge
-                                    badge-admin
-                                "
-                            >
-                                🔐 إداري
-                            </span>
+                            </div>
+                        </summary>
 
-                            {% else %}
+                        <div class="command-settings-panel">
 
-                            <span
-                                class="
-                                    badge
-                                    badge-normal
-                                "
-                            >
-                                👤 عادي
-                            </span>
-
+                            {% if command.get("description") %}
+                            <div class="command-description">
+                                {{ command.get("description") }}
+                            </div>
                             {% endif %}
-
-                            <span
-                                class="command-state {% if not saved_enabled %}is-disabled{% endif %}"
-                                data-command-status
-                            >
-                                {% if saved_enabled %}مفعّل{% else %}معطّل{% endif %}
-                            </span>
-
-                        </div>
-
-                    </div>
-
-
-                    <label class="switch">
-
-                        <input
-                            type="checkbox"
-                            class="command-enabled"
-                            onchange="updateCommandState(this)"
-                            {% if saved_enabled %}
-                            checked
-                            {% endif %}
-                        >
-
-                        <span
-                            class="slider"
-                        ></span>
-
-                    </label>
-
-                </div>
-
 
                 <div class="command-grid">
 
@@ -4769,11 +5012,29 @@ def commands_page(guild_id):
 
                     <div>
 
-                        <label class="form-label">
-                            🎯 الرومات المسموح بها
-                        </label>
+                        <div class="channel-heading">
+                            <label class="form-label">
+                                🎯 الرومات المسموح بها
+                            </label>
 
-                        <div class="picker">
+                            <label class="all-channels-toggle">
+                                <input
+                                    type="checkbox"
+                                    class="all-channels-check"
+                                    onchange="toggleAllChannels(this)"
+                                    aria-label="تشغيل الأمر في كل الرومات الحالية"
+                                    {% if command.get("all_channels_selected") %}
+                                    checked
+                                    {% endif %}
+                                    {% if not channels %}
+                                    disabled
+                                    {% endif %}
+                                >
+                                <span>كل الرومات الحالية</span>
+                            </label>
+                        </div>
+
+                        <div class="picker channel-picker">
 
                             <div class="picker-top">
 
@@ -4872,6 +5133,10 @@ def commands_page(guild_id):
                         <div
                             class="selected-count channel-count"
                         >
+                        </div>
+
+                        <div class="channel-scope-note">
+                            يشمل الرومات المتاحة الآن؛ إذا أضفت رومًا جديدًا، افتح إعداد الأمر واحفظه ليشمله.
                         </div>
 
                     </div>
@@ -5010,6 +5275,46 @@ def commands_page(guild_id):
 
                 </div>
 
+                    <div class="command-alias-panel">
+                        <div class="command-alias-title">
+                            ⚡ اختصارات هذا الأمر
+                        </div>
+
+                        <div class="command-alias-form">
+                            <input
+                                type="text"
+                                class="input command-alias-input"
+                                maxlength="30"
+                                placeholder="اكتب اختصارًا قصيرًا، مثل: ذ"
+                                aria-label="اختصار جديد للأمر {{ command_name }}"
+                            >
+                            <button
+                                type="button"
+                                class="btn btn-secondary command-alias-add"
+                                onclick="createCommandAlias(this)"
+                            >
+                                إضافة اختصار
+                            </button>
+                        </div>
+
+                        <div class="command-alias-list">
+                            {% for alias_item in command.get("command_aliases", []) %}
+                            <span class="command-alias-item">
+                                <code>-{{ alias_item.get("alias") }}</code>
+                                <button
+                                    type="button"
+                                    class="command-alias-delete"
+                                    data-alias="{{ alias_item.get('alias') }}"
+                                    aria-label="حذف الاختصار {{ alias_item.get('alias') }}"
+                                    onclick="deleteCommandAlias(this)"
+                                >×</button>
+                            </span>
+                            {% else %}
+                            <span class="small">ما فيه اختصارات لهذا الأمر حالياً.</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+
 
                 <button
                     type="button"
@@ -5024,6 +5329,24 @@ def commands_page(guild_id):
                 >
                     💾 حفظ إعدادات الأمر
                 </button>
+
+                        </div>
+
+                    </details>
+
+                    <label class="switch command-toggle" title="تفعيل أو تعطيل الأمر">
+                        <input
+                            type="checkbox"
+                            class="command-enabled"
+                            onchange="updateCommandState(this)"
+                            {% if saved_enabled %}
+                            checked
+                            {% endif %}
+                        >
+                        <span class="slider"></span>
+                    </label>
+
+                </div>
 
             </div>
 
@@ -5311,6 +5634,57 @@ def commands_page(guild_id):
         }
 
 
+        function toggleAllChannels(
+            input,
+            initial = false
+        ) {
+            const card =
+                input.closest(
+                    ".command-card"
+                );
+
+            if (!card) {
+                return;
+            }
+
+            const channelInputs = [
+                ...card.querySelectorAll(
+                    ".channel-check"
+                )
+            ];
+
+            if (input.checked) {
+                channelInputs.forEach(channel => {
+                    channel.checked = true;
+                });
+            } else if (!initial) {
+                channelInputs.forEach(channel => {
+                    channel.checked = false;
+                });
+            }
+
+            const picker =
+                card.querySelector(
+                    ".channel-picker"
+                );
+
+            if (picker) {
+                picker.classList.toggle(
+                    "is-all-selected",
+                    input.checked
+                );
+
+                picker.querySelectorAll(
+                    ".channel-check, .picker-search, .picker-actions .mini-btn"
+                ).forEach(control => {
+                    control.disabled = input.checked;
+                });
+            }
+
+            updateCounts();
+        }
+
+
         function updateCounts() {
 
             document
@@ -5330,6 +5704,10 @@ def commands_page(guild_id):
                             ".role-check:checked"
                         ).length;
 
+                    const allRooms =
+                        card.querySelector(
+                            ".all-channels-check"
+                        )?.checked;
 
                     const channelCounter =
                         card.querySelector(
@@ -5346,7 +5724,9 @@ def commands_page(guild_id):
                     if (channelCounter) {
 
                         channelCounter.textContent =
-                            channels
+                            allRooms
+                                ? "✓ يعمل في كل الرومات الحالية"
+                                : channels
                                 ? "✓ تم تحديد "
                                   + channels
                                   + " روم"
@@ -5396,6 +5776,22 @@ def commands_page(guild_id):
             ].map(
                 x => x.value
             );
+
+            const allRooms =
+                card.querySelector(
+                    ".all-channels-check"
+                )?.checked;
+
+            if (
+                !allRooms
+                && channels.length === 0
+            ) {
+                alert(
+                    "حدد رومًا واحدًا على الأقل أو اختر «كل الرومات الحالية»"
+                );
+
+                return;
+            }
 
 
             const roles = [
@@ -5511,6 +5907,104 @@ def commands_page(guild_id):
         }
 
 
+        async function createCommandAlias(button) {
+            const card =
+                button.closest(
+                    ".command-card"
+                );
+
+            const input =
+                card?.querySelector(
+                    ".command-alias-input"
+                );
+
+            const alias = (input?.value || "")
+                .trim()
+                .replace(/^[-.]/, "");
+
+            if (!card || !alias) {
+                alert("اكتب الاختصار أولاً");
+                return;
+            }
+
+            button.disabled = true;
+
+            try {
+                const response = await fetch(
+                    "{{ url_for('create_alias') }}",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            guild_id: card.dataset.guildId,
+                            command_name: card.dataset.commandName,
+                            alias: alias
+                        })
+                    }
+                );
+
+                const data = await response.json();
+                alert(data.message || "تم التنفيذ");
+
+                if (data.success) {
+                    location.reload();
+                }
+            } catch (error) {
+                alert("تعذر إضافة الاختصار");
+                button.disabled = false;
+            }
+        }
+
+
+        async function deleteCommandAlias(button) {
+            const card =
+                button.closest(
+                    ".command-card"
+                );
+
+            const alias =
+                button.dataset.alias;
+
+            if (
+                !card
+                || !alias
+                || !confirm("هل تريد حذف هذا الاختصار؟")
+            ) {
+                return;
+            }
+
+            button.disabled = true;
+
+            try {
+                const response = await fetch(
+                    "{{ url_for('delete_alias') }}",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            guild_id: card.dataset.guildId,
+                            alias: alias
+                        })
+                    }
+                );
+
+                const data = await response.json();
+                alert(data.message || "تم التنفيذ");
+
+                if (data.success) {
+                    location.reload();
+                }
+            } catch (error) {
+                alert("تعذر حذف الاختصار");
+                button.disabled = false;
+            }
+        }
+
+
         document.addEventListener(
             "change",
             function(event) {
@@ -5541,6 +6035,18 @@ def commands_page(guild_id):
                 updateCounts();
             }
         );
+
+
+        document
+            .querySelectorAll(
+                ".all-channels-check:checked"
+            )
+            .forEach(input => {
+                toggleAllChannels(
+                    input,
+                    true
+                );
+            });
 
 
         updateCounts();
